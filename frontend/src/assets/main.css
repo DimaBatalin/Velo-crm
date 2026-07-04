@@ -1,0 +1,26 @@
+@import './base.css';
+
+#app {
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+input:focus,
+select:focus,
+button:focus {
+  outline: 2px solid rgba(124, 58, 237, 0.4);
+  outline-offset: 2px;
+}
+
+* {
+  box-sizing: border-box;
+}

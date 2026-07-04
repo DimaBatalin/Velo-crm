@@ -1,0 +1,7 @@
+/.idea
+/venv
+/__pycache__
+/pyd/__pycache__
+/routers/__pycache__
+sql_app.sqlite
+.venv
