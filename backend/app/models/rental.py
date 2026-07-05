@@ -49,6 +49,17 @@ class Rental(Base):
         default=RentalStatus.ACTIVE,
     )
 
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+        comment="Сотрудник, создавший запись об аренде",
+    )
+
+    created_by = relationship(
+        "User",
+        foreign_keys=[created_by_user_id],
+    )
+
     bike = relationship(
         "Bike",
         back_populates="rentals",

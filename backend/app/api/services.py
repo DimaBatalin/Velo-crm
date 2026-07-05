@@ -7,6 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.core.deps import require_roles
+from app.enums.user_role import UserRole
 
 from app.models.service import Service
 
@@ -25,6 +27,7 @@ router = APIRouter(
     "",
     response_model=ServiceResponse,
     status_code=201,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))],
 )
 async def create_service(
         service_data: ServiceCreate,
@@ -87,6 +90,7 @@ async def get_service(
 @router.put(
     "/{service_id}",
     response_model=ServiceResponse,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))],
 )
 async def update_service(
         service_id: int,
@@ -111,7 +115,10 @@ async def update_service(
     return service
 
 
-@router.delete("/{service_id}")
+@router.delete(
+    "/{service_id}",
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))],
+)
 async def delete_service(
         service_id: int,
         db: AsyncSession = Depends(get_db),

@@ -11,16 +11,30 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 from app.db.base import Base
+from app.core.config import settings
 
 from app.models.person import Person
 from app.models.bike import Bike
-from app.models.repair import Repair
+from app.models.repair import Repair, RepairService, RepairPart
 from app.models.part import Part
 from app.models.service import Service
-from app.models.user import User  # ← added
+from app.models.user import User
+from app.models.rental import Rental
+from app.models.photo import Photo
+from app.models.passport import PassportData
+from app.models.tag import Tag, PersonTag
 
 
 target_metadata = Base.metadata
+
+# Единый источник правды: DATABASE_URL берём из Settings (core/config.py),
+# а не из отдельного хардкода в alembic.ini — иначе значения могут разойтись.
+# psycopg2 (sync-драйвер) нужен здесь, т.к. Alembic работает синхронно, даже
+# если сам DATABASE_URL прописан для asyncpg (postgresql+asyncpg://...).
+config.set_main_option(
+    "sqlalchemy.url",
+    settings.DATABASE_URL.replace("+asyncpg", ""),
+)
 
 
 def run_migrations_offline() -> None:

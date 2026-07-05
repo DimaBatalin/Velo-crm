@@ -6,6 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.core.deps import require_roles
+from app.enums.user_role import UserRole
 
 from app.models.passport import PassportData
 from app.models.person import Person
@@ -68,6 +70,7 @@ async def get_passport(
     "",
     response_model=PassportResponse,
     status_code=201,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))],
 )
 async def create_passport(
         person_id: int,
@@ -105,6 +108,7 @@ async def create_passport(
 @router.put(
     "",
     response_model=PassportResponse,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))],
 )
 async def update_passport(
         person_id: int,
@@ -137,7 +141,10 @@ async def update_passport(
     return passport
 
 
-@router.delete("")
+@router.delete(
+    "",
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))],
+)
 async def delete_passport(
         person_id: int,
         db: AsyncSession = Depends(get_db),

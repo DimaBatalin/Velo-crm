@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decode_access_token
 from app.db.session import get_db
+from app.enums.user_role import UserRole
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -36,3 +37,22 @@ async def get_current_user(
         raise credentials_exception
 
     return user
+
+
+def require_roles(*roles: UserRole):
+    """
+    Фабрика зависимостей для RBAC. Использование:
+        Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))
+    admin по умолчанию не добавляется автоматически — его нужно
+    перечислять явно там, где он должен иметь доступ (обычно везде).
+    """
+
+    async def _checker(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Недостаточно прав. Требуется одна из ролей: {', '.join(r.value for r in roles)}",
+            )
+        return current_user
+
+    return _checker

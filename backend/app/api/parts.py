@@ -8,6 +8,8 @@ from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.core.deps import require_roles
+from app.enums.user_role import UserRole
 
 from app.models.part import Part
 
@@ -28,6 +30,7 @@ router = APIRouter(
     "",
     response_model=PartResponse,
     status_code=201,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))],
 )
 async def create_part(
         part_data: PartCreate,
@@ -53,7 +56,6 @@ async def get_parts(
         category: str | None = None,
         owner: OwnerType | None = None,
         low_stock: bool = False,
-        low_stock_threshold: int = Query(default=3, ge=0),
         limit: int = Query(default=20, le=200),
         offset: int = 0,
         db: AsyncSession = Depends(get_db),
@@ -81,7 +83,7 @@ async def get_parts(
 
     if low_stock:
         query = query.where(
-            Part.quantity <= low_stock_threshold
+            Part.quantity <= Part.min_stock
         )
 
     query = query.limit(limit).offset(offset)
@@ -113,6 +115,7 @@ async def get_part(
 @router.put(
     "/{part_id}",
     response_model=PartResponse,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))],
 )
 async def update_part(
         part_id: int,
@@ -137,7 +140,10 @@ async def update_part(
     return part
 
 
-@router.delete("/{part_id}")
+@router.delete(
+    "/{part_id}",
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))],
+)
 async def delete_part(
         part_id: int,
         db: AsyncSession = Depends(get_db),

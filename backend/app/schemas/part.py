@@ -30,6 +30,12 @@ class PartBase(BaseModel):
         ge=0,
     )
 
+    min_stock: int = Field(
+        2,
+        ge=0,
+        description="Минимальный остаток, ниже/на уровне которого позиция считается 'мало на складе'",
+    )
+
     purchase_price: float = Field(
         ...,
         ge=0,
@@ -67,6 +73,11 @@ class PartUpdate(BaseModel):
     sku: str | None = None
 
     quantity: int | None = Field(
+        None,
+        ge=0,
+    )
+
+    min_stock: int | None = Field(
         None,
         ge=0,
     )

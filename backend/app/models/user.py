@@ -1,7 +1,8 @@
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, Enum, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.enums.user_role import UserRole
 
 
 class User(Base):
@@ -21,6 +22,12 @@ class User(Base):
 
     hashed_password: Mapped[str] = mapped_column(
         String(255),
+    )
+
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole),
+        default=UserRole.MECHANIC,
+        server_default=UserRole.MECHANIC.value,
     )
 
     is_active: Mapped[bool] = mapped_column(

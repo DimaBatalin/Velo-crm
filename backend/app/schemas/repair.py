@@ -179,6 +179,11 @@ class RepairUpdate(BaseModel):
 
     status: RepairStatus | None = None
 
+    closed_by_user_id: int | None = Field(
+        None,
+        description="Обязателен при переводе статуса в 'done'",
+    )
+
 
 class RepairResponse(BaseModel):
 
@@ -199,6 +204,20 @@ class RepairResponse(BaseModel):
     started_at: datetime
 
     completed_at: datetime | None = None
+
+    closed_by_user_id: int | None = None
+
+    closed_by_name: str | None = Field(
+        None,
+        description="Имя сотрудника, закрывшего ремонт",
+    )
+
+    created_by_user_id: int | None = None
+
+    total_cost: float | None = Field(
+        None,
+        description="Сумма всех услуг и запчастей (по sale_price) данного ремонта",
+    )
 
     created_at: datetime
 

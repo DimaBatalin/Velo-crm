@@ -65,6 +65,11 @@ class PersonResponse(BaseModel):
 
     rentals: list[RentalForPerson] = []
 
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Названия тегов, привязанных к клиенту",
+    )
+
     @computed_field
     @property
     def full_name(self) -> str:

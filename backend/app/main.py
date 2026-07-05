@@ -15,6 +15,8 @@ from app.api.services import router as services_router
 from app.api.repairs import router as repairs_router
 from app.api.rentals import router as rentals_router
 from app.api.enums import router as enums_router
+from app.api.tags import router as tags_router
+from app.api.analytics import router as analytics_router
 
 
 @asynccontextmanager
@@ -55,6 +57,8 @@ app.include_router(services_router,**protected)
 app.include_router(repairs_router, **protected)
 app.include_router(rentals_router, **protected)
 app.include_router(enums_router,   **protected)
+app.include_router(tags_router,    **protected)
+app.include_router(analytics_router, **protected)
 
 
 @app.get("/")

@@ -39,6 +39,13 @@ class Part(Base):
         default=0,
     )
 
+    min_stock: Mapped[int] = mapped_column(
+        Integer,
+        default=2,
+        server_default="2",
+        comment="Минимальный остаток, ниже которого позиция считается 'мало на складе'",
+    )
+
     purchase_price: Mapped[float] = mapped_column(
         Float,
         comment="Закупочная стоимость",

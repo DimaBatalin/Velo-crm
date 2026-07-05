@@ -10,6 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.core.deps import get_current_user, require_roles
+from app.enums.user_role import UserRole
+from app.models.user import User
 
 from app.models.bike import Bike
 from app.models.person import Person
@@ -58,6 +61,7 @@ async def _get_rental_or_404(
 async def create_rental(
         rental_data: RentalCreate,
         db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER)),
 ):
     bike = await db.get(Bike, rental_data.bike_id)
 
@@ -87,7 +91,10 @@ async def create_rental(
             detail="Person not found",
         )
 
-    rental = Rental(**rental_data.model_dump())
+    rental = Rental(
+        **rental_data.model_dump(),
+        created_by_user_id=current_user.id,
+    )
 
     # Переводим велосипед в статус "в аренде"
     bike.status = BikeStatus.RENTED
@@ -145,6 +152,7 @@ async def get_rental(
 @router.put(
     "/{rental_id}",
     response_model=RentalResponse,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))],
 )
 async def update_rental(
         rental_id: int,
@@ -163,7 +171,7 @@ async def update_rental(
                 detail="Person not found",
             )
 
-        rental.person_id = rental_data.person_idv
+        rental.person_id = rental_data.person_id
 
     if rental_data.bike_id and rental_data.bike_id != rental.bike_id:
 
@@ -183,7 +191,7 @@ async def update_rental(
 
         old_bike = await db.get(Bike, rental.bike_id)
 
-        if old_bike:
+        if old_bike and old_bike.status == BikeStatus.RENTED:
             old_bike.status = BikeStatus.READY
 
         new_bike.status = BikeStatus.RENTED
@@ -215,6 +223,7 @@ async def update_rental(
 @router.post(
     "/{rental_id}/close",
     response_model=RentalResponse,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))],
 )
 async def close_rental(
         rental_id: int,
@@ -245,7 +254,10 @@ async def close_rental(
     return rental
 
 
-@router.delete("/{rental_id}")
+@router.delete(
+    "/{rental_id}",
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))],
+)
 async def delete_rental(
         rental_id: int,
         db: AsyncSession = Depends(get_db),

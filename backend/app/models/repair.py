@@ -50,6 +50,28 @@ class Repair(Base):
         nullable=True,
     )
 
+    closed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+        comment="Сотрудник, закрывший ремонт (обязателен при переводе в статус done)",
+    )
+
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+        comment="Сотрудник, создавший запись о ремонте",
+    )
+
+    closed_by = relationship(
+        "User",
+        foreign_keys=[closed_by_user_id],
+    )
+
+    created_by = relationship(
+        "User",
+        foreign_keys=[created_by_user_id],
+    )
+
     bike = relationship(
         "Bike",
         back_populates="repairs",

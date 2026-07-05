@@ -77,3 +77,16 @@ class Person(Base):
         back_populates="person",
         uselist=False,
     )
+
+    person_tags = relationship(
+        "PersonTag",
+        back_populates="person",
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def tags(self) -> list[str]:
+        """Названия тегов клиента. Требует, чтобы person_tags.tag были
+        загружены заранее (selectinload), иначе в async-контексте
+        обращение к ленивой связи упадёт с ошибкой."""
+        return [pt.tag.name for pt in self.person_tags]

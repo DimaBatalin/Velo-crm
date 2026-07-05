@@ -3,9 +3,10 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_roles
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db.session import get_db
+from app.enums.user_role import UserRole
 from app.models.user import User
 from app.schemas.user import Token, UserCreate, UserResponse
 
@@ -53,12 +54,12 @@ async def me(current_user: User = Depends(get_current_user)):
     "/register",
     response_model=UserResponse,
     status_code=201,
-    summary="Создать пользователя (только для авторизованных)",
+    summary="Создать пользователя (только admin)",
 )
 async def register(
     data: UserCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
 ):
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
@@ -71,6 +72,7 @@ async def register(
         email=data.email,
         full_name=data.full_name,
         hashed_password=hash_password(data.password),
+        role=data.role,
     )
     db.add(user)
     await db.commit()

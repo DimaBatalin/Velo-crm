@@ -15,5 +15,6 @@ python-jose[cryptography]
 
 email-validator
 
-alembic
 psycopg2-binary
+openpyxl
+httpx

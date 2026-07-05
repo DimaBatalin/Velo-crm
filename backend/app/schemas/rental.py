@@ -67,6 +67,8 @@ class RentalResponse(BaseModel):
 
     status: RentalStatus
 
+    created_by_user_id: int | None = None
+
     created_at: datetime
 
     updated_at: datetime

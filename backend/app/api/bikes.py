@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
+from app.core.deps import require_roles
+from app.enums.user_role import UserRole
 
 from app.enums.bike_owner_type import BikeOwnerType
 from app.enums.bike_status import BikeStatus
@@ -34,6 +36,7 @@ def _bike_details_query():
     "",
     response_model=BikeResponse,
     status_code=201,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))],
 )
 async def create_bike(
         bike_data: BikeCreate,
@@ -124,6 +127,7 @@ async def get_bike(
 @router.put(
     "/{bike_id}",
     response_model=BikeResponse,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))],
 )
 async def update_bike(
         bike_id: int,
@@ -161,7 +165,10 @@ async def update_bike(
     return result.scalar_one()
 
 
-@router.delete("/{bike_id}")
+@router.delete(
+    "/{bike_id}",
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MECHANIC))],
+)
 async def delete_bike(
         bike_id: int,
         db: AsyncSession = Depends(get_db),

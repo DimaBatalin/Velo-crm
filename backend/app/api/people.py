@@ -9,11 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
+from app.core.deps import require_roles
+from app.enums.user_role import UserRole
 
 from app.enums.person_status import PersonStatus
 from app.models.person import Person
 from app.models.rental import Rental
+from app.models.tag import PersonTag, Tag
 from app.schemas.person import PersonCreate, PersonResponse, PersonUpdate
+from app.schemas.tag import PersonTagAdd
 
 
 router = APIRouter(
@@ -24,7 +28,8 @@ router = APIRouter(
 
 def _person_details_query():
     return select(Person).options(
-        selectinload(Person.rentals).selectinload(Rental.bike)
+        selectinload(Person.rentals).selectinload(Rental.bike),
+        selectinload(Person.person_tags).selectinload(PersonTag.tag),
     )
 
 
@@ -32,6 +37,7 @@ def _person_details_query():
     "",
     response_model=PersonResponse,
     status_code=201,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))],
 )
 async def create_person(
         person_data: PersonCreate,
@@ -65,11 +71,15 @@ async def create_person(
 async def get_people(
         search: str | None = None,
         status: PersonStatus | None = None,
+        tag: str | None = Query(default=None, description="Фильтр по названию тега, напр. 'Магнит'"),
         limit: int = Query(default=20, le=200),
         offset: int = 0,
         db: AsyncSession = Depends(get_db),
 ):
     query = _person_details_query()
+
+    if tag:
+        query = query.join(Person.person_tags).join(PersonTag.tag).where(Tag.name == tag)
 
     if search:
         query = query.where(
@@ -117,6 +127,7 @@ async def get_person(
 @router.put(
     "/{person_id}",
     response_model=PersonResponse,
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))],
 )
 async def update_person(
         person_id: int,
@@ -146,7 +157,10 @@ async def update_person(
     return result.scalar_one()
 
 
-@router.delete("/{person_id}")
+@router.delete(
+    "/{person_id}",
+    dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.MANAGER))],
+)
 async def delete_person(
         person_id: int,
         db: AsyncSession = Depends(get_db),
@@ -167,3 +181,74 @@ async def delete_person(
     await db.commit()
 
     return {"message": "Person deleted"}
+
+
+# ──────────────────────────────────────────────
+# Теги клиента
+# ──────────────────────────────────────────────
+
+@router.post(
+    "/{person_id}/tags",
+    response_model=PersonResponse,
+    status_code=201,
+)
+async def add_tag_to_person(
+        person_id: int,
+        data: PersonTagAdd,
+        db: AsyncSession = Depends(get_db),
+):
+    person = await db.get(Person, person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    tag = await db.get(Tag, data.tag_id)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+
+    existing = await db.execute(
+        select(PersonTag).where(
+            PersonTag.person_id == person_id,
+            PersonTag.tag_id == data.tag_id,
+        )
+    )
+    if not existing.scalar_one_or_none():
+        db.add(PersonTag(person_id=person_id, tag_id=data.tag_id))
+        await db.commit()
+
+    result = await db.execute(
+        _person_details_query().where(Person.id == person_id)
+    )
+    return result.scalar_one()
+
+
+@router.delete(
+    "/{person_id}/tags/{tag_id}",
+    response_model=PersonResponse,
+)
+async def remove_tag_from_person(
+        person_id: int,
+        tag_id: int,
+        db: AsyncSession = Depends(get_db),
+):
+    person = await db.get(Person, person_id)
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    result = await db.execute(
+        select(PersonTag).where(
+            PersonTag.person_id == person_id,
+            PersonTag.tag_id == tag_id,
+        )
+    )
+    person_tag = result.scalar_one_or_none()
+
+    if not person_tag:
+        raise HTTPException(status_code=404, detail="Tag not attached to this person")
+
+    await db.delete(person_tag)
+    await db.commit()
+
+    result = await db.execute(
+        _person_details_query().where(Person.id == person_id)
+    )
+    return result.scalar_one()
