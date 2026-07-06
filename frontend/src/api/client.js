@@ -159,11 +159,10 @@ export async function deleteRental(rentalId) {
 }
 
 // ── Parts ─────────────────────────────────────────────────
-export async function getParts({ search, category, owner, lowStock, lowStockThreshold = 3, limit = 100, offset = 0 } = {}) {
+export async function getParts({ search, category, owner, lowStock, limit = 100, offset = 0 } = {}) {
   const query = buildQuery({
     search, category, owner,
     low_stock: lowStock,
-    low_stock_threshold: lowStockThreshold,
     limit, offset,
   })
   return request(`/parts?${query.toString()}`)
@@ -218,4 +217,64 @@ export async function updatePassport(personId, data) {
 
 export async function deletePassport(personId) {
   return request(`/people/${personId}/passport`, { method: 'DELETE' })
+}
+
+// ── Tags (2.5) ────────────────────────────────────────────
+export async function getTags() {
+  return request('/tags')
+}
+
+export async function createTag(name) {
+  return request('/tags', { method: 'POST', data: { name } })
+}
+
+export async function addPersonTag(personId, tagId) {
+  return request(`/people/${personId}/tags`, { method: 'POST', data: { tag_id: tagId } })
+}
+
+export async function removePersonTag(personId, tagId) {
+  return request(`/people/${personId}/tags/${tagId}`, { method: 'DELETE' })
+}
+
+// ── Analytics (2.6) ───────────────────────────────────────
+export async function getPartsProfit() {
+  return request('/analytics/parts/profit')
+}
+
+export async function getPartsTop(limit = 10) {
+  return request(`/analytics/parts/top?limit=${limit}`)
+}
+
+export async function getPartsConsumption(period = 'week') {
+  return request(`/analytics/parts/consumption?period=${period}`)
+}
+
+export async function getPartsPurchases(period = 'week') {
+  return request(`/analytics/parts/purchases?period=${period}`)
+}
+
+export async function getServicesTop(limit = 10) {
+  return request(`/analytics/services/top?limit=${limit}`)
+}
+
+export async function getServicesRevenue(period = 'week') {
+  return request(`/analytics/services/revenue?period=${period}`)
+}
+
+/** Скачивает xlsx-отчёт и инициирует сохранение файла в браузере. */
+export async function downloadAnalyticsExport(period = 'week') {
+  const token = getToken()
+  const response = await fetch(`${API_URL}/analytics/export?period=${period}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) throw new Error(`Export failed: ${response.status}`)
+  const blob = await response.blob()
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'report.xlsx'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
 }

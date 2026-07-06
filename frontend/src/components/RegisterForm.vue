@@ -7,6 +7,7 @@ const full_name = ref('')
 const email     = ref('')
 const password  = ref('')
 const confirm   = ref('')
+const role      = ref('mechanic')
 const error     = ref('')
 const success   = ref('')
 const loading   = ref(false)
@@ -37,6 +38,7 @@ async function handleSubmit() {
         full_name: full_name.value,
         email:     email.value,
         password:  password.value,
+        role:      role.value,
       }),
     })
 
@@ -54,6 +56,7 @@ async function handleSubmit() {
     email.value     = ''
     password.value  = ''
     confirm.value   = ''
+    role.value      = 'mechanic'
   } catch (e) {
     error.value = e.message
   } finally {
@@ -121,6 +124,15 @@ async function handleSubmit() {
             autocomplete="new-password"
             required
           />
+        </div>
+
+        <div class="field">
+          <label class="field-label">Роль</label>
+          <select v-model="role" class="field-input" :disabled="loading" required>
+            <option value="admin">Администратор</option>
+            <option value="mechanic">Механик</option>
+            <option value="manager">Менеджер</option>
+          </select>
         </div>
 
         <p v-if="error"   class="msg msg--error">{{ error }}</p>

@@ -1,7 +1,7 @@
-"""add user role and created_by_user_id
+﻿"""add user role and created_by_user_id
 
 Revision ID: 005_add_roles
-Revises: 004_add_tags
+Revises: 001_initial_schema
 Create Date: 2026-07-05
 """
 from alembic import op
@@ -73,3 +73,4 @@ def downgrade() -> None:
 
     op.drop_column("users", "role")
     user_role_enum.drop(op.get_bind(), checkfirst=True)
+

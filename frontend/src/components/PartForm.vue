@@ -17,6 +17,7 @@ const localForm = ref({
   purchase_price: '',
   sale_price: '',
   quantity: 1,
+  min_stock: 2,
   owner: 'kirill',
   notes: '',
 })
@@ -33,6 +34,7 @@ watch(
         purchase_price: value.purchase_price ?? '',
         sale_price: value.sale_price ?? '',
         quantity: value.quantity ?? 1,
+        min_stock: value.min_stock ?? 2,
         owner: value.owner ?? 'kirill',
         notes: value.notes ?? '',
       }
@@ -88,6 +90,10 @@ function onSubmit() {
         <label class="field">
           <span class="field-label">Количество, шт.</span>
           <input v-model.number="localForm.quantity" type="number" min="0" placeholder="1" />
+        </label>
+        <label class="field">
+          <span class="field-label">Мин. остаток, шт.</span>
+          <input v-model.number="localForm.min_stock" type="number" min="0" placeholder="2" />
         </label>
         <label class="field">
           <span class="field-label">Принадлежность</span>

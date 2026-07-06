@@ -10,6 +10,8 @@ import PartForm from './components/PartForm.vue'
 import RentalForm from './components/RentalForm.vue'
 import LoginForm from './components/LoginForm.vue'
 import RegisterForm from './components/RegisterForm.vue'
+import TagsView from './components/TagsView.vue'
+import AnalyticsView from './components/AnalyticsView.vue'
 import { getToken, removeToken } from './api/client.js'
 import { getMe } from './api/auth.js'
 
@@ -81,7 +83,7 @@ const newPerson = ref({
 })
 
 const newBike = ref({
-  type: 'Электровелосипед', brand: '', model: '', serial_number: '', color: '', notes: '', owner_person_id: null,
+  type: 'Электровелосипед', brand: '', model: '', serial_number: '', color: '', notes: '', owner_type: null,
 })
 
 function createRepairDraft() {
@@ -92,7 +94,7 @@ const newRepair = ref(createRepairDraft())
 
 const newPart = ref({
   name: '', category: '', sku: '', purchase_price: '',
-  sale_price: '', quantity: 1, owner: 'kirill', supplier: '', notes: '',
+  sale_price: '', quantity: 1, min_stock: 2, owner: 'kirill', supplier: '', notes: '',
 })
 
 const newRental = ref({ bike_id: null, person_id: null, price_per_day: '' })
@@ -104,6 +106,8 @@ const navItems = [
   { id: 'repairs',   label: 'Ремонты'     },
   { id: 'parts',     label: 'Запчасти'    },
   { id: 'history',   label: 'История'     },
+  { id: 'tags',      label: 'Теги'        },
+  { id: 'analytics', label: 'Аналитика'   },
 ]
 
 const bikeStatusOptions = [
@@ -156,6 +160,8 @@ const pageMeta = {
   repairs:   { title: 'Ремонты',          sub: 'Список заказов на ремонт и их статус'    },
   parts:     { title: 'Запчасти и склад', sub: 'Запасы и остатки на складе'              },
   history:   { title: 'История',          sub: 'Хронология аренд и ремонтов'             },
+  tags:      { title: 'Теги',             sub: 'Управление тегами клиентов'              },
+  analytics: { title: 'Аналитика',        sub: 'Заработок, топы и экспорт отчётов'       },
 }
 
 const searchPlaceholders = {
@@ -177,7 +183,7 @@ const addButtonLabels = {
 
 const pageTitle       = computed(() => pageMeta[activePage.value]?.title ?? '')
 const pageSubtitle    = computed(() => pageMeta[activePage.value]?.sub ?? '')
-const hasSearch       = computed(() => true)
+const hasSearch       = computed(() => !['tags', 'analytics'].includes(activePage.value))
 const hasAddButton    = computed(() => activePage.value in addButtonLabels)
 const filterOptions   = computed(() => statusOptions[activePage.value] || [])
 const searchPlaceholder = computed(() => searchPlaceholders[activePage.value] || 'Поиск...')
@@ -573,7 +579,7 @@ async function submitEditBike() {
     await updateBike(editingBike.value.id, {
       type: editingBike.value.type, brand: editingBike.value.brand, model: editingBike.value.model,
       serial_number: editingBike.value.serial_number || undefined, color: editingBike.value.color || undefined,
-      notes: editingBike.value.notes || undefined, owner_person_id: editingBike.value.owner_person_id || undefined,
+      notes: editingBike.value.notes || undefined, owner_type: editingBike.value.owner_type || undefined,
       status: editingBike.value.status,
     })
     showToast('Велосипед обновлён.'); editingBike.value = null; loadBikes()
@@ -585,10 +591,10 @@ async function submitBike() {
     await createBike({
       type: newBike.value.type, brand: newBike.value.brand, model: newBike.value.model,
       serial_number: newBike.value.serial_number || undefined, color: newBike.value.color || undefined,
-      notes: newBike.value.notes || undefined, owner_person_id: newBike.value.owner_person_id || undefined,
+      notes: newBike.value.notes || undefined, owner_type: newBike.value.owner_type || undefined,
     })
     showToast('Велосипед добавлен.'); showBikeForm.value = false
-    newBike.value = { type: 'Электровелосипед', brand: '', model: '', serial_number: '', color: '', notes: '', owner_person_id: null }
+    newBike.value = { type: 'Электровелосипед', brand: '', model: '', serial_number: '', color: '', notes: '', owner_type: null }
     loadBikes()
   } catch (e) { console.error(e); showToast('Ошибка при добавлении велосипеда.', 'error') }
 }
@@ -623,10 +629,11 @@ async function submitPart() {
       name: newPart.value.name, category: newPart.value.category || undefined,
       sku: newPart.value.sku || undefined, purchase_price: Number(newPart.value.purchase_price),
       sale_price: Number(newPart.value.sale_price), quantity: Number(newPart.value.quantity),
+      min_stock: Number(newPart.value.min_stock) || 2,
       owner: newPart.value.owner, supplier: newPart.value.supplier || undefined, notes: newPart.value.notes || undefined,
     })
     showToast('Запчасть добавлена.'); showPartForm.value = false
-    newPart.value = { name: '', category: '', sku: '', purchase_price: '', sale_price: '', quantity: 1, owner: 'kirill', supplier: '', notes: '' }
+    newPart.value = { name: '', category: '', sku: '', purchase_price: '', sale_price: '', quantity: 1, min_stock: 2, owner: 'kirill', supplier: '', notes: '' }
     loadParts()
   } catch (e) { console.error(e); showToast('Ошибка при добавлении запчасти.', 'error') }
 }
@@ -882,8 +889,12 @@ watch([searchQuery, selectedStatus], () => {
           <span class="spinner"></span> Загрузка...
         </div>
 
+        <TagsView v-if="activePage === 'tags'" @toast="showToast" />
+
+        <AnalyticsView v-else-if="activePage === 'analytics'" @toast="showToast" />
+
         <!-- ═══════════════ АРЕНДЫ (dashboard) ═══════════════ -->
-        <div class="table-wrap">
+        <div v-else class="table-wrap">
           <table v-if="activePage === 'dashboard'" class="table">
             <thead>
             <tr>
@@ -1078,7 +1089,7 @@ watch([searchQuery, selectedStatus], () => {
                   </span>
               </td>
               <td class="col-right" data-label="Кол-во">
-                  <span :class="['quantity-val', row.quantity <= 2 ? 'quantity-low' : '']">
+                  <span :class="['quantity-val', row.quantity <= row.min_stock ? 'quantity-low' : '']" :title="`Мин. остаток: ${row.min_stock}`">
                     {{ row.quantity }} шт.
                   </span>
               </td>
