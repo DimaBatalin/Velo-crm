@@ -1,5 +1,7 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
+import { useSyncedForm } from '../composables/useSyncedForm.js'
+import { useEnums } from '../composables/useEnums.js'
 
 const props = defineProps({
   visible: Boolean,
@@ -10,7 +12,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'save', 'close'])
 
-const localForm = ref({
+const defaults = {
   id: undefined,
   first_name: '',
   last_name: '',
@@ -27,7 +29,7 @@ const localForm = ref({
     issued_at: '',
     notes: '',
   },
-})
+}
 
 function parsePhone(value) {
   if (!value) return ''
@@ -73,6 +75,32 @@ function formatPhone(value) {
   return formatted
 }
 
+const { enums } = useEnums()
+
+const { localForm } = useSyncedForm(
+  () => props.modelValue,
+  (value) => emit('update:modelValue', value),
+  defaults,
+  (value) => ({
+    id: value.id,
+    first_name: value.first_name ?? '',
+    last_name: value.last_name ?? '',
+    middle_name: value.middle_name ?? '',
+    phone: value.phone ?? '',
+    email: value.email ?? '',
+    telegram: value.telegram ?? '',
+    notes: value.notes ?? '',
+    status: value.status ?? 'active',
+    passport: {
+      series: value.passport?.series ?? '',
+      number: value.passport?.number ?? '',
+      issued_by: value.passport?.issued_by ?? '',
+      issued_at: value.passport?.issued_at ?? '',
+      notes: value.passport?.notes ?? '',
+    },
+  }),
+)
+
 const formattedPhone = computed({
   get() {
     return formatPhone(localForm.value.phone)
@@ -82,44 +110,15 @@ const formattedPhone = computed({
   },
 })
 
-watch(
-  () => props.modelValue,
-  (value) => {
-    if (value) {
-      localForm.value = {
-        id: value.id,
-        first_name: value.first_name ?? '',
-        last_name: value.last_name ?? '',
-        middle_name: value.middle_name ?? '',
-        phone: value.phone ?? '',
-        email: value.email ?? '',
-        telegram: value.telegram ?? '',
-        notes: value.notes ?? '',
-        status: value.status ?? 'active',
-        passport: {
-          series: value.passport?.series ?? '',
-          number: value.passport?.number ?? '',
-          issued_by: value.passport?.issued_by ?? '',
-          issued_at: value.passport?.issued_at ?? '',
-          notes: value.passport?.notes ?? '',
-        },
-      }
-    }
-  },
-  { immediate: true, deep: true },
-)
-
-watch(
-  localForm,
-  (value) => emit('update:modelValue', JSON.parse(JSON.stringify(value))),
-  { deep: true },
-)
-
-const statusOptions = [
+const FALLBACK_PERSON_STATUSES = [
   { value: 'active', label: 'Активный' },
   { value: 'blocked', label: 'Заблокирован' },
   { value: 'archived', label: 'Архивный' },
 ]
+
+const statusOptions = computed(() =>
+  enums.value?.person_status?.length ? enums.value.person_status : FALLBACK_PERSON_STATUSES,
+)
 
 function onSubmit() {
   emit('save')

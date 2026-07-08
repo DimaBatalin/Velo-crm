@@ -1,5 +1,7 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed } from 'vue'
+import { useSyncedForm } from '../composables/useSyncedForm.js'
+import { useEnums } from '../composables/useEnums.js'
 
 const props = defineProps({
   visible: Boolean,
@@ -9,7 +11,18 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'save', 'close'])
 
-const localForm = ref({
+const { enums } = useEnums()
+
+const FALLBACK_OWNER_TYPES = [
+  { value: 'kirill', label: 'Кирилл' },
+  { value: 'vitaly', label: 'Виталий' },
+]
+
+const ownerOptions = computed(() =>
+  enums.value?.owner_type?.length ? enums.value.owner_type : FALLBACK_OWNER_TYPES,
+)
+
+const defaults = {
   name: '',
   category: '',
   sku: '',
@@ -20,33 +33,24 @@ const localForm = ref({
   min_stock: 2,
   owner: 'kirill',
   notes: '',
-})
+}
 
-watch(
+const { localForm } = useSyncedForm(
   () => props.modelValue,
-  (value) => {
-    if (value) {
-      localForm.value = {
-        name: value.name ?? '',
-        category: value.category ?? '',
-        sku: value.sku ?? '',
-        supplier: value.supplier ?? '',
-        purchase_price: value.purchase_price ?? '',
-        sale_price: value.sale_price ?? '',
-        quantity: value.quantity ?? 1,
-        min_stock: value.min_stock ?? 2,
-        owner: value.owner ?? 'kirill',
-        notes: value.notes ?? '',
-      }
-    }
-  },
-  { immediate: true, deep: true },
-)
-
-watch(
-  localForm,
-  (value) => emit('update:modelValue', { ...value }),
-  { deep: true },
+  (value) => emit('update:modelValue', value),
+  defaults,
+  (value) => ({
+    name: value.name ?? '',
+    category: value.category ?? '',
+    sku: value.sku ?? '',
+    supplier: value.supplier ?? '',
+    purchase_price: value.purchase_price ?? '',
+    sale_price: value.sale_price ?? '',
+    quantity: value.quantity ?? 1,
+    min_stock: value.min_stock ?? 2,
+    owner: value.owner ?? 'kirill',
+    notes: value.notes ?? '',
+  }),
 )
 
 function onSubmit() {
@@ -98,8 +102,7 @@ function onSubmit() {
         <label class="field">
           <span class="field-label">Принадлежность</span>
           <select v-model="localForm.owner">
-            <option value="kirill">Кирилл</option>
-            <option value="vitaly">Виталий</option>
+            <option v-for="opt in ownerOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
         </label>
         <label class="field full-width">

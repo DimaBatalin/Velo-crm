@@ -1,5 +1,7 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { computed } from 'vue'
+import { useSyncedForm } from '../composables/useSyncedForm.js'
+import { useEnums } from '../composables/useEnums.js'
 
 const props = defineProps({
   visible: Boolean,
@@ -28,7 +30,7 @@ const emit = defineEmits([
   'close',
 ])
 
-const localForm = ref({
+const defaults = {
   id: undefined,
   bike_id: null,
   person_id: null,
@@ -38,45 +40,41 @@ const localForm = ref({
   ended_at: '',
 
   status: 'active',
-})
+}
 
-watch(
-    () => props.modelValue,
-    (value) => {
-      if (!value) return
+const { enums } = useEnums()
 
-      localForm.value = {
-        id: value.id,
-        bike_id: value.bike_id ?? null,
-        person_id: value.person_id ?? null,
+const FALLBACK_RENTAL_STATUSES = [
+  { value: 'active', label: 'Активна' },
+  { value: 'returned', label: 'Возвращена' },
+  { value: 'overdue', label: 'Просрочена' },
+]
 
-        price_per_day: value.price_per_day ?? '',
-
-        started_at: value.started_at
-            ? value.started_at.slice(0, 16)
-            : '',
-
-        ended_at: value.ended_at
-            ? value.ended_at.slice(0, 16)
-            : '',
-
-        status: value.status ?? 'active',
-      }
-    },
-    {
-      immediate: true,
-      deep: true,
-    },
+const statusOptions = computed(() =>
+  enums.value?.rental_status?.length ? enums.value.rental_status : FALLBACK_RENTAL_STATUSES,
 )
 
-watch(
-    localForm,
-    (value) => {
-      emit('update:modelValue', { ...value })
-    },
-    {
-      deep: true,
-    },
+const { localForm } = useSyncedForm(
+    () => props.modelValue,
+    (value) => emit('update:modelValue', value),
+    defaults,
+    (value) => ({
+      id: value.id,
+      bike_id: value.bike_id ?? null,
+      person_id: value.person_id ?? null,
+
+      price_per_day: value.price_per_day ?? '',
+
+      started_at: value.started_at
+          ? value.started_at.slice(0, 16)
+          : '',
+
+      ended_at: value.ended_at
+          ? value.ended_at.slice(0, 16)
+          : '',
+
+      status: value.status ?? 'active',
+    }),
 )
 
 const availableBikes = computed(() =>
@@ -216,13 +214,7 @@ function onSubmit() {
           </span>
 
           <select v-model="localForm.status">
-            <option value="active">
-              Активна
-            </option>
-
-            <option value="returned">
-              Возвращена
-            </option>
+            <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
         </label>
 

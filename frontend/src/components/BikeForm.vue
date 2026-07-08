@@ -1,5 +1,7 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed } from 'vue'
+import { useSyncedForm } from '../composables/useSyncedForm.js'
+import { useEnums } from '../composables/useEnums.js'
 
 const props = defineProps({
   visible: Boolean,
@@ -10,7 +12,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue', 'save', 'close'])
 
-const localForm = ref({
+const defaults = {
   id: undefined,
   type: 'Электровелосипед',
   brand: '',
@@ -20,50 +22,54 @@ const localForm = ref({
   notes: '',
   owner_type: null,
   status: 'ready',
-})
+}
 
-watch(
+const { localForm } = useSyncedForm(
     () => props.modelValue,
-    (value) => {
-      if (value) {
-        localForm.value = {
-          id: value.id,
-          type: value.type ?? 'Электровелосипед',
-          brand: value.brand ?? '',
-          model: value.model ?? '',
-          serial_number: value.serial_number ?? '',
-          color: value.color ?? '',
-          notes: value.notes ?? '',
-          owner_type: value.owner_type ?? null,
-          status: value.status ?? 'ready',
-        }
-      }
-    },
-    { immediate: true, deep: true },
+    (value) => emit('update:modelValue', value),
+    defaults,
+    (value) => ({
+      id: value.id,
+      type: value.type ?? 'Электровелосипед',
+      brand: value.brand ?? '',
+      model: value.model ?? '',
+      serial_number: value.serial_number ?? '',
+      color: value.color ?? '',
+      notes: value.notes ?? '',
+      owner_type: value.owner_type ?? null,
+      status: value.status ?? 'ready',
+    }),
 )
 
-watch(
-    localForm,
-    (value) => emit('update:modelValue', { ...value }),
-    { deep: true },
-)
+const { enums } = useEnums()
 
-const bikeTypeOptions = [
+// Фолбэк на случай, если /enums ещё не загрузился или недоступен —
+// чтобы форма не осталась без вариантов выбора.
+const FALLBACK_BIKE_TYPES = [
   { value: 'Электровелосипед', label: '⚡ Электровелосипед' },
   { value: 'Механический велосипед', label: '🔧 Механический велосипед' },
 ]
-
-const ownerTypeOptions = [
+const FALLBACK_OWNER_TYPES = [
   { value: 'Великий мастер', label: 'Великий мастер' },
   { value: 'Виталий', label: 'Виталий' },
 ]
-
-const statusOptions = [
+const FALLBACK_STATUSES = [
   { value: 'ready', label: 'Готов' },
   { value: 'rented', label: 'В аренде' },
   { value: 'repair', label: 'Ремонт' },
   { value: 'stolen', label: 'Кража' },
 ]
+
+const bikeTypeOptions = computed(() => {
+  const opts = enums.value?.bike_type
+  if (!opts?.length) return FALLBACK_BIKE_TYPES
+  const withIcons = { 'Электровелосипед': '⚡ ', 'Механический велосипед': '🔧 ' }
+  return opts.map(o => ({ value: o.value, label: (withIcons[o.value] || '') + o.label }))
+})
+
+const ownerTypeOptions = computed(() => enums.value?.bike_owner_type?.length ? enums.value.bike_owner_type : FALLBACK_OWNER_TYPES)
+
+const statusOptions = computed(() => enums.value?.bike_status?.length ? enums.value.bike_status : FALLBACK_STATUSES)
 
 function onSubmit() {
   emit('save')

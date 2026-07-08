@@ -1,4 +1,4 @@
-﻿"""initial schema
+"""initial schema
 
 Revision ID: 001_initial_schema
 Revises:
@@ -226,4 +226,3 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_bikes_serial_number'), table_name='bikes')
     op.drop_table('bikes')
     # ### end Alembic commands ###
-

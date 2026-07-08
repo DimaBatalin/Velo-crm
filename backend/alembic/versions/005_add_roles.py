@@ -1,4 +1,4 @@
-﻿"""add user role and created_by_user_id
+"""add user role and created_by_user_id
 
 Revision ID: 005_add_roles
 Revises: 001_initial_schema
@@ -73,4 +73,3 @@ def downgrade() -> None:
 
     op.drop_column("users", "role")
     user_role_enum.drop(op.get_bind(), checkfirst=True)
-

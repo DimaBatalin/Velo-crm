@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { useEnums } from '../composables/useEnums.js'
 import {
   addRepairPart,
   addRepairService,
@@ -25,6 +26,27 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'save', 'saved', 'close'])
 
+const { enums } = useEnums()
+
+const FALLBACK_REPAIR_STATUSES = [
+  { value: 'new', label: 'Новый' },
+  { value: 'in_progress', label: 'В работе' },
+  { value: 'waiting_parts', label: 'Ожидание запчастей' },
+  { value: 'done', label: 'Выполнен' },
+  { value: 'cancelled', label: 'Отменён' },
+]
+const FALLBACK_OWNER_TYPES = [
+  { value: 'kirill', label: 'Кирилл' },
+  { value: 'vitaly', label: 'Виталий' },
+]
+
+const repairStatusOptions = computed(() =>
+  enums.value?.repair_status?.length ? enums.value.repair_status : FALLBACK_REPAIR_STATUSES,
+)
+const ownerOptions = computed(() =>
+  enums.value?.owner_type?.length ? enums.value.owner_type : FALLBACK_OWNER_TYPES,
+)
+
 const createEmptyForm = () => ({
   id: null,
   bike_id: null,
@@ -34,6 +56,7 @@ const createEmptyForm = () => ({
 })
 
 const form = ref(createEmptyForm())
+const lastSyncedFormJson = ref(null)
 const repairDetail = ref(null)
 const summary = ref(null)
 const servicesCatalog = ref([])
@@ -128,6 +151,10 @@ const activePersonSuggestions = computed(() => {
 
 function cloneForm(value) {
   return JSON.parse(JSON.stringify(value))
+}
+
+function cloneFormJson(value) {
+  return JSON.stringify(value)
 }
 
 function currency(value) {
@@ -267,6 +294,7 @@ watch(
     async (value) => {
       if (!value) {
         form.value = createEmptyForm()
+        lastSyncedFormJson.value = null
         repairDetail.value = null
         summary.value = null
         lastLoadedId.value = null
@@ -274,12 +302,17 @@ watch(
       }
 
       syncLock.value = true
-      form.value = {
+      const nextForm = {
         id: value.id ?? null,
         bike_id: value.bike_id ?? null,
         client_id: value.client_id ?? null,
         problem_description: value.problem_description ?? '',
         status: value.status ?? 'new',
+      }
+      const nextJson = JSON.stringify(nextForm)
+      if (nextJson !== lastSyncedFormJson.value) {
+        lastSyncedFormJson.value = nextJson
+        form.value = nextForm
       }
       nextTick(() => { syncLock.value = false })
 
@@ -321,7 +354,12 @@ watch(
 
 watch(
     form,
-    (value) => emit('update:modelValue', cloneForm(value)),
+    (value) => {
+      const json = cloneFormJson(value)
+      if (json === lastSyncedFormJson.value) return
+      lastSyncedFormJson.value = json
+      emit('update:modelValue', JSON.parse(json))
+    },
     { deep: true },
 )
 
@@ -590,11 +628,7 @@ function formatRubles(value) {
         <label class="field">
           <span class="field-label">Статус</span>
           <select v-model="form.status" :disabled="!isEditing">
-            <option value="new">Новый</option>
-            <option value="in_progress">В работе</option>
-            <option value="waiting_parts">Ожидание запчастей</option>
-            <option value="done">Выполнен</option>
-            <option value="cancelled">Отменён</option>
+            <option v-for="opt in repairStatusOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
         </label>
 
@@ -757,8 +791,7 @@ function formatRubles(value) {
             <input v-model="newPart.purchase_price" type="number" min="0" step="0.01" placeholder="Закупочная цена" />
             <input v-model="newPart.sale_price" type="number" min="0" step="0.01" placeholder="Цена продажи" />
             <select v-model="newPart.owner">
-              <option value="kirill">Кирилл</option>
-              <option value="vitaly">Виталий</option>
+              <option v-for="opt in ownerOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
             <input v-model="newPart.supplier" type="text" placeholder="Поставщик" />
             <textarea v-model="newPart.notes" rows="2" class="full-width" placeholder="Заметки"></textarea>

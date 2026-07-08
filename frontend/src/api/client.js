@@ -278,3 +278,8 @@ export async function downloadAnalyticsExport(period = 'week') {
   a.remove()
   window.URL.revokeObjectURL(url)
 }
+
+// ── Enums (справочники со значениями и человекочитаемыми label) ──
+export async function getEnums() {
+  return request('/enums')
+}
