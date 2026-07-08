@@ -4,6 +4,5 @@ __pycache__/
 .vscode
 .idea
 test_results.json
-test_runner.py
 bruno
 database_temp.py
