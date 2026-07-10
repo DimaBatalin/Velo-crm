@@ -164,18 +164,12 @@ class RepairCreate(BaseModel):
 
     client_id: int
 
-    problem_description: str = Field(
-        ...,
-        min_length=1,
-    )
+    problem_description: str | None = None
 
 
 class RepairUpdate(BaseModel):
 
-    problem_description: str | None = Field(
-        None,
-        min_length=1,
-    )
+    problem_description: str | None = None
 
     status: RepairStatus | None = None
 

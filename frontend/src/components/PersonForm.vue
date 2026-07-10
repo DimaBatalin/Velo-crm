@@ -1,7 +1,8 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useSyncedForm } from '../composables/useSyncedForm.js'
 import { useEnums } from '../composables/useEnums.js'
+import { getTags, createTag, addPersonTag, removePersonTag } from '../api/client.js'
 
 const props = defineProps({
   visible: Boolean,
@@ -10,7 +11,7 @@ const props = defineProps({
   submitLabel: { type: String, default: 'Сохранить' },
   showStatus: { type: Boolean, default: false },
 })
-const emit = defineEmits(['update:modelValue', 'save', 'close'])
+const emit = defineEmits(['update:modelValue', 'save', 'close', 'tagsChanged'])
 
 const defaults = {
   id: undefined,
@@ -22,6 +23,7 @@ const defaults = {
   telegram: '',
   notes: '',
   status: 'active',
+  tags: [],
   passport: {
     series: '',
     number: '',
@@ -91,6 +93,7 @@ const { localForm } = useSyncedForm(
     telegram: value.telegram ?? '',
     notes: value.notes ?? '',
     status: value.status ?? 'active',
+    tags: value.tags ?? [],
     passport: {
       series: value.passport?.series ?? '',
       number: value.passport?.number ?? '',
@@ -119,6 +122,86 @@ const FALLBACK_PERSON_STATUSES = [
 const statusOptions = computed(() =>
   enums.value?.person_status?.length ? enums.value.person_status : FALLBACK_PERSON_STATUSES,
 )
+
+// ── Теги клиента (редактируются прямо в форме, без отдельной страницы) ──
+const isEditing = computed(() => !!localForm.value.id)
+const personTags = computed(() => localForm.value.tags || [])
+
+const tagCatalog = ref([])
+const tagToAttach = ref(null)
+const newTagName = ref('')
+const tagsLoading = ref(false)
+const tagsSaving = ref(false)
+
+const availableTagsToAttach = computed(() =>
+  tagCatalog.value.filter(tag => !personTags.value.includes(tag.name)),
+)
+
+async function loadTagCatalog() {
+  tagsLoading.value = true
+  try { tagCatalog.value = await getTags() }
+  catch (error) { console.error('Не удалось загрузить теги', error) }
+  finally { tagsLoading.value = false }
+}
+
+watch(
+  () => props.visible,
+  (visible) => { if (visible) loadTagCatalog() },
+  { immediate: true },
+)
+
+async function handleAttachTag() {
+  if (!isEditing.value || !tagToAttach.value) return
+  tagsSaving.value = true
+  try {
+    const tag = tagCatalog.value.find(t => t.id === tagToAttach.value)
+    await addPersonTag(localForm.value.id, tagToAttach.value)
+    if (tag && !personTags.value.includes(tag.name)) {
+      localForm.value.tags = [...personTags.value, tag.name]
+    }
+    tagToAttach.value = null
+    emit('tagsChanged')
+  } catch (error) {
+    console.error('Не удалось привязать тег', error)
+  } finally {
+    tagsSaving.value = false
+  }
+}
+
+async function handleCreateAndAttachTag() {
+  if (!isEditing.value || !newTagName.value.trim()) return
+  tagsSaving.value = true
+  try {
+    const tag = await createTag(newTagName.value.trim())
+    await addPersonTag(localForm.value.id, tag.id)
+    tagCatalog.value = [...tagCatalog.value, tag]
+    if (!personTags.value.includes(tag.name)) {
+      localForm.value.tags = [...personTags.value, tag.name]
+    }
+    newTagName.value = ''
+    emit('tagsChanged')
+  } catch (error) {
+    console.error('Не удалось создать и привязать тег', error)
+  } finally {
+    tagsSaving.value = false
+  }
+}
+
+async function handleRemoveTag(tagName) {
+  if (!isEditing.value) return
+  const tag = tagCatalog.value.find(t => t.name === tagName)
+  if (!tag) return
+  tagsSaving.value = true
+  try {
+    await removePersonTag(localForm.value.id, tag.id)
+    localForm.value.tags = personTags.value.filter(name => name !== tagName)
+    emit('tagsChanged')
+  } catch (error) {
+    console.error('Не удалось отвязать тег', error)
+  } finally {
+    tagsSaving.value = false
+  }
+}
 
 function onSubmit() {
   emit('save')
@@ -194,6 +277,38 @@ function onSubmit() {
             <textarea v-model="localForm.passport.notes" rows="2" placeholder="Дополнительная информация..."></textarea>
           </label>
         </div>
+
+        <div v-if="isEditing" class="form-grid full-width passport-section tags-section">
+          <div class="passport-section-header">Теги</div>
+          <div class="full-width tag-chips">
+            <span v-for="tagName in personTags" :key="tagName" class="tag-chip removable">
+              {{ tagName }}
+              <button type="button" class="tag-remove" :disabled="tagsSaving" @click="handleRemoveTag(tagName)">✕</button>
+            </span>
+            <span v-if="!personTags.length" class="empty-hint">Тегов пока нет</span>
+          </div>
+          <label class="field">
+            <span class="field-label">Привязать существующий тег</span>
+            <div class="tag-attach-row">
+              <select v-model="tagToAttach" :disabled="tagsSaving || !availableTagsToAttach.length">
+                <option :value="null">Выберите тег</option>
+                <option v-for="tag in availableTagsToAttach" :key="tag.id" :value="tag.id">{{ tag.name }}</option>
+              </select>
+              <button type="button" class="btn-ghost" :disabled="tagsSaving || !tagToAttach" @click="handleAttachTag">
+                Добавить
+              </button>
+            </div>
+          </label>
+          <label class="field">
+            <span class="field-label">Или создать новый</span>
+            <div class="tag-attach-row">
+              <input v-model="newTagName" placeholder="Название тега" :disabled="tagsSaving" />
+              <button type="button" class="btn-ghost" :disabled="tagsSaving || !newTagName.trim()" @click="handleCreateAndAttachTag">
+                Создать
+              </button>
+            </div>
+          </label>
+        </div>
       </div>
       <div class="form-actions">
         <button type="submit" class="btn-primary">{{ submitLabel }}</button>
@@ -202,3 +317,38 @@ function onSubmit() {
     </form>
   </div>
 </template>
+
+<style scoped>
+.tag-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ede9fe;
+  color: #5b21b6;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.tag-remove {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #7c5cbf;
+  font-size: 0.75rem;
+  padding: 0;
+  line-height: 1;
+}
+.tag-remove:hover:not(:disabled) { color: #dc2626; }
+.tag-remove:disabled { opacity: .5; cursor: not-allowed; }
+
+.empty-hint { color: #9ca3af; font-size: 0.85rem; }
+
+.tag-attach-row { display: flex; gap: 8px; }
+.tag-attach-row select,
+.tag-attach-row input { flex: 1; min-width: 0; }
+.tag-attach-row .btn-ghost { flex-shrink: 0; }
+</style>

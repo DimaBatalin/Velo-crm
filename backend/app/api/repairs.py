@@ -169,7 +169,7 @@ async def create_repair(
         )
 
     repair = Repair(
-        **repair_data.model_dump(),
+        **{**repair_data.model_dump(), "problem_description": repair_data.problem_description or ""},
         created_by_user_id=current_user.id,
     )
 

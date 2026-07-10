@@ -10,10 +10,10 @@ import PartForm from './components/PartForm.vue'
 import RentalForm from './components/RentalForm.vue'
 import LoginForm from './components/LoginForm.vue'
 import RegisterForm from './components/RegisterForm.vue'
-import TagsView from './components/TagsView.vue'
 import AnalyticsView from './components/AnalyticsView.vue'
 import { getToken, removeToken } from './api/client.js'
 import { getMe } from './api/auth.js'
+import { useEnums } from './composables/useEnums.js'
 
 // ── Auth state ────────────────────────────────────────────
 const currentUser   = ref(null)
@@ -29,8 +29,17 @@ async function initAuth() {
   authChecked.value = true
 }
 
-function onAuthenticated() {
-  initAuth()
+async function loadInitialData() {
+  try { await getApiMessage() } catch {}
+  if (typeof window !== 'undefined') {
+    isSidebarOpen.value = window.innerWidth > 1024
+  }
+  await Promise.all([loadPeople(), loadBikes(), loadRepairs(), loadRentals(), loadParts()])
+}
+
+async function onAuthenticated() {
+  await initAuth()
+  if (currentUser.value) await loadInitialData()
 }
 
 function logout() {
@@ -106,52 +115,79 @@ const navItems = [
   { id: 'repairs',   label: 'Ремонты'     },
   { id: 'parts',     label: 'Запчасти'    },
   { id: 'history',   label: 'История'     },
-  { id: 'tags',      label: 'Теги'        },
   { id: 'analytics', label: 'Аналитика'   },
 ]
 
-const bikeStatusOptions = [
+// ── Справочники (со значениями и label) — с backend (GET /enums) ──
+// Хардкод здесь — это только fallback на случай, если /enums ещё не
+// загрузился или недоступен, чтобы UI не остался без опций вовсе.
+const { enums } = useEnums()
+
+const FALLBACK_BIKE_STATUSES = [
   { value: 'ready',  label: 'Готов'    },
   { value: 'rented', label: 'В аренде' },
   { value: 'repair', label: 'Ремонт'   },
   { value: 'stolen', label: 'Кража'    },
 ]
-
-const repairStatusOptions = [
-  { value: '',              label: 'Все'       },
-  { value: 'new',          label: 'Новый'     },
-  { value: 'in_progress',  label: 'В работе'  },
-  { value: 'waiting_parts',label: 'Ожидание'  },
-  { value: 'done',         label: 'Выполнен'  },
-  { value: 'cancelled',    label: 'Отменён'   },
+const FALLBACK_REPAIR_STATUSES = [
+  { value: 'new',           label: 'Новый'     },
+  { value: 'in_progress',   label: 'В работе'  },
+  { value: 'waiting_parts', label: 'Ожидание'  },
+  { value: 'done',          label: 'Выполнен'  },
+  { value: 'cancelled',     label: 'Отменён'   },
+]
+const FALLBACK_RENTAL_STATUSES = [
+  { value: 'active',   label: 'Активна'    },
+  { value: 'returned', label: 'Возвращён'  },
+  { value: 'overdue',  label: 'Просрочена' },
+]
+const FALLBACK_PERSON_STATUSES = [
+  { value: 'active',   label: 'Активный'      },
+  { value: 'blocked',  label: 'Заблокирован'  },
+  { value: 'archived', label: 'Архивный'      },
+]
+const FALLBACK_OWNER_TYPES = [
+  { value: 'kirill', label: 'Кирилл'  },
+  { value: 'vitaly', label: 'Виталий' },
 ]
 
-const rentalStatusOptions = [
-  { value: '',         label: 'Все'        },
-  { value: 'active',   label: 'Активные'   },
-  { value: 'returned', label: 'Возвращены' },
-  { value: 'overdue',  label: 'Просрочены' },
-]
-
-const repairStatusLabels   = { new: 'Новый', in_progress: 'В работе', waiting_parts: 'Ожидание', done: 'Выполнен', cancelled: 'Отменён' }
-const repairStatusBadge    = { new: 'rented', in_progress: 'repair', waiting_parts: 'repair', done: 'ready', cancelled: 'stolen' }
-const rentalStatusLabels   = { active: 'Активна', returned: 'Возвращён', overdue: 'Просрочена' }
-const rentalStatusBadge    = { active: 'rented', returned: 'ready', overdue: 'stolen' }
-const personStatusLabels   = { active: 'Активный', blocked: 'Заблокирован', archived: 'Архивный' }
-const bikeStatusLabels     = { ready: 'Готов', rented: 'В аренде', repair: 'Ремонт', stolen: 'Кража' }
-const ownerLabels          = { kirill: 'Кирилл', vitaly: 'Виталий' }
-
-const statusOptions = {
-  dashboard: rentalStatusOptions,
-  couriers:  [
-    { value: '', label: 'Все' },
-    { value: 'active',   label: 'Активные'        },
-    { value: 'blocked',  label: 'Заблокированные' },
-    { value: 'archived', label: 'Архивные'        },
-  ],
-  bicycles:  [{ value: '', label: 'Все' }, ...bikeStatusOptions],
-  repairs:   repairStatusOptions,
+function withAll(options) {
+  return [{ value: '', label: 'Все' }, ...options]
 }
+function toLabelMap(options) {
+  const map = {}
+  for (const opt of options) map[opt.value] = opt.label
+  return map
+}
+
+const bikeStatusOptions      = computed(() => enums.value?.bike_status?.length ? enums.value.bike_status : FALLBACK_BIKE_STATUSES)
+const repairStatusOptionsRaw = computed(() => enums.value?.repair_status?.length ? enums.value.repair_status : FALLBACK_REPAIR_STATUSES)
+const rentalStatusOptionsRaw = computed(() => enums.value?.rental_status?.length ? enums.value.rental_status : FALLBACK_RENTAL_STATUSES)
+const personStatusOptionsRaw = computed(() => enums.value?.person_status?.length ? enums.value.person_status : FALLBACK_PERSON_STATUSES)
+const ownerTypeOptions       = computed(() => enums.value?.owner_type?.length ? enums.value.owner_type : FALLBACK_OWNER_TYPES)
+
+const repairStatusOptions = computed(() => withAll(repairStatusOptionsRaw.value))
+const rentalStatusOptions = computed(() => withAll(rentalStatusOptionsRaw.value))
+
+const repairStatusLabels = computed(() => toLabelMap(repairStatusOptionsRaw.value))
+const rentalStatusLabels = computed(() => toLabelMap(rentalStatusOptionsRaw.value))
+const personStatusLabels = computed(() => toLabelMap(personStatusOptionsRaw.value))
+const bikeStatusLabels   = computed(() => toLabelMap(bikeStatusOptions.value))
+const ownerLabels        = computed(() => toLabelMap(ownerTypeOptions.value))
+
+// Цвет бейджа — чисто визуальное решение, /enums его не хранит (там
+// только value+label). Новый статус просто получит дефолтный цвет
+// (см. `|| 'repair'` / `|| 'rented'` в местах использования) до
+// ручного добавления сюда — это не ломает данные, только раскраску.
+const repairStatusBadge = { new: 'rented', in_progress: 'repair', waiting_parts: 'repair', done: 'ready', cancelled: 'stolen' }
+const rentalStatusBadge = { active: 'rented', returned: 'ready', overdue: 'stolen' }
+
+const statusOptions = computed(() => ({
+  dashboard: rentalStatusOptions.value,
+  couriers:  withAll(personStatusOptionsRaw.value),
+  bicycles:  withAll(bikeStatusOptions.value),
+  repairs:   repairStatusOptions.value,
+}))
 
 const pageMeta = {
   dashboard: { title: 'Аренды',           sub: 'Управление арендами велосипедов'         },
@@ -160,7 +196,6 @@ const pageMeta = {
   repairs:   { title: 'Ремонты',          sub: 'Список заказов на ремонт и их статус'    },
   parts:     { title: 'Запчасти и склад', sub: 'Запасы и остатки на складе'              },
   history:   { title: 'История',          sub: 'Хронология аренд и ремонтов'             },
-  tags:      { title: 'Теги',             sub: 'Управление тегами клиентов'              },
   analytics: { title: 'Аналитика',        sub: 'Заработок, топы и экспорт отчётов'       },
 }
 
@@ -183,9 +218,9 @@ const addButtonLabels = {
 
 const pageTitle       = computed(() => pageMeta[activePage.value]?.title ?? '')
 const pageSubtitle    = computed(() => pageMeta[activePage.value]?.sub ?? '')
-const hasSearch       = computed(() => !['tags', 'analytics'].includes(activePage.value))
+const hasSearch       = computed(() => !['analytics'].includes(activePage.value))
 const hasAddButton    = computed(() => activePage.value in addButtonLabels)
-const filterOptions   = computed(() => statusOptions[activePage.value] || [])
+const filterOptions   = computed(() => statusOptions.value[activePage.value] || [])
 const searchPlaceholder = computed(() => searchPlaceholders[activePage.value] || 'Поиск...')
 
 const personById = computed(() => {
@@ -260,7 +295,7 @@ const historyEvents = computed(() => {
     id: `r${r.id}`, event_type: 'Ремонт',
     description: r.problem_description,
     bike_id: r.bike_id, person_id: r.client_id,
-    status: r.status, status_label: repairStatusLabels[r.status] || r.status,
+    status: r.status, status_label: repairStatusLabels.value[r.status] || r.status,
     badge: repairStatusBadge[r.status] || 'repair', created_at: r.created_at,
   }))
 
@@ -268,7 +303,7 @@ const historyEvents = computed(() => {
     id: `n${r.id}`, event_type: 'Аренда',
     description: r.price_per_day ? `${r.price_per_day} ₽/день` : 'Цена не указана',
     bike_id: r.bike_id, person_id: r.person_id,
-    status: r.status, status_label: rentalStatusLabels[r.status] || r.status,
+    status: r.status, status_label: rentalStatusLabels.value[r.status] || r.status,
     badge: rentalStatusBadge[r.status] || 'rented', created_at: r.created_at,
   }))
 
@@ -699,11 +734,7 @@ async function handleDeleteRental(rental) {
 onMounted(async () => {
   await initAuth()
   if (!currentUser.value) return
-  try { await getApiMessage() } catch {}
-  if (typeof window !== 'undefined') {
-    isSidebarOpen.value = window.innerWidth > 1024
-  }
-  await Promise.all([loadPeople(), loadBikes(), loadRepairs(), loadRentals(), loadParts()])
+  await loadInitialData()
 })
 
 const lastTap = ref(0)
@@ -841,6 +872,7 @@ watch([searchQuery, selectedStatus], () => {
                   title="Редактировать клиента"
                   submitLabel="Сохранить изменения"
                   @save="submitEditPerson"
+                  @tagsChanged="loadPeople"
                   @close="closeAllForms"
               />
 
@@ -889,9 +921,7 @@ watch([searchQuery, selectedStatus], () => {
           <span class="spinner"></span> Загрузка...
         </div>
 
-        <TagsView v-if="activePage === 'tags'" @toast="showToast" />
-
-        <AnalyticsView v-else-if="activePage === 'analytics'" @toast="showToast" />
+        <AnalyticsView v-if="activePage === 'analytics'" @toast="showToast" />
 
         <!-- ═══════════════ АРЕНДЫ (dashboard) ═══════════════ -->
         <div v-else class="table-wrap">
@@ -957,6 +987,7 @@ watch([searchQuery, selectedStatus], () => {
               <th>Телефон</th>
               <th>Паспорт</th>
               <th>Статус</th>
+              <th>Теги</th>
               <th>Велосипеды в аренде</th>
             </tr>
             </thead>
@@ -976,6 +1007,10 @@ watch([searchQuery, selectedStatus], () => {
                     {{ personStatusLabels[row.status] || row.status }}
                   </span>
               </td>
+              <td class="td-tags" data-label="Теги">
+                <span v-for="tagName in row.tags" :key="tagName" class="person-tag-chip">{{ tagName }}</span>
+                <span v-if="!row.tags?.length" class="td-muted">—</span>
+              </td>
               <td class="td-bikes td-link" data-label="В аренде"
                   title="Открыть велосипед"
                   @click.stop="openFirstActiveBikeForPerson(row)">
@@ -983,7 +1018,7 @@ watch([searchQuery, selectedStatus], () => {
               </td>
             </tr>
             <tr v-if="!isLoading && filteredRows.length === 0">
-              <td colspan="5" class="empty-row">Клиенты не найдены</td>
+              <td colspan="6" class="empty-row">Клиенты не найдены</td>
             </tr>
             </tbody>
           </table>
@@ -1042,6 +1077,7 @@ watch([searchQuery, selectedStatus], () => {
               <th>Клиент</th>
               <th>Описание</th>
               <th>Статус</th>
+              <th class="col-right">Стоимость</th>
               <th>Дата</th>
             </tr>
             </thead>
@@ -1054,16 +1090,17 @@ watch([searchQuery, selectedStatus], () => {
               <td class="td-link" data-label="Клиент" title="Открыть клиента" @click.stop="openPersonById(row.client_id)">
                 {{ personById[row.client_id] || `#${row.client_id}` }}
               </td>
-              <td class="td-desc" data-label="Описание">{{ row.problem_description }}</td>
+              <td class="td-desc" data-label="Описание">{{ row.problem_description || '—' }}</td>
               <td data-label="Статус">
                   <span :class="['badge', repairStatusBadge[row.status] || 'repair']">
                     {{ repairStatusLabels[row.status] || row.status }}
                   </span>
               </td>
+              <td class="col-right td-price" data-label="Стоимость">{{ row.total_cost != null ? `${row.total_cost} ₽` : '—' }}</td>
               <td class="td-date" data-label="Дата">{{ row.created_at ? new Date(row.created_at).toLocaleDateString('ru') : '—' }}</td>
             </tr>
             <tr v-if="!isLoading && filteredRows.length === 0">
-              <td colspan="6" class="empty-row">Ремонты не найдены</td>
+              <td colspan="7" class="empty-row">Ремонты не найдены</td>
             </tr>
             </tbody>
           </table>
@@ -1410,7 +1447,7 @@ body {
 .td-price { font-weight: 600; color: #111827; }
 .td-desc  { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .td-bikes { font-size: 0.85rem; color: #4b5563;}
-.td-actions { white-space: nowrap; }
+.td-actions { white-space: nowrap; text-align: right; }
 .col-right { text-align: right; }
 .empty-row { text-align: center; color: #9ca3af; padding: 36px !important; font-size: 0.875rem; }
 
@@ -1465,6 +1502,14 @@ body {
 }
 .passport-tag.loaded  { background: #f0fdf4; color: #15803d; }
 .passport-tag.missing { background: #f9fafb; color: #9ca3af; }
+
+.td-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.person-tag-chip {
+  font-size: 0.72rem; font-weight: 600;
+  padding: 3px 9px; border-radius: 999px;
+  background: #ede9fe; color: #5b21b6; white-space: nowrap;
+}
+.td-muted { color: #9ca3af; }
 
 .category-tag {
   font-size: 0.75rem; background: #f3f4f6; color: #6b7280;

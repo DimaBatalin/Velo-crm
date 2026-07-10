@@ -14,6 +14,15 @@ pip install -r requirements.txt
 используются только при самом первом старте (создают единственного admin'а,
 если таблица `users` пуста).
 
+> **Известная нестыковка:** `.env` содержит `ALLOWED_ORIGINS`, но `Settings`
+> (`app/core/config.py`) это поле не читает — CORS в `app/main.py`
+> захардкожен списком `localhost:3000`/`127.0.0.1:3000`/`localhost:5173`/
+> `127.0.0.1:5173`. Т.е. переменная `ALLOWED_ORIGINS` в `.env` сейчас ни на
+> что не влияет. Если понадобится другой origin (прод-домен, другой порт) —
+> добавляйте его прямо в список `allow_origins` в `main.py`, либо заведите
+> в `Settings` поле `ALLOWED_ORIGINS: list[str]` и прокиньте его в
+> `CORSMiddleware` по-настоящему.
+
 ## Миграции
 
 Схема БД управляется **только** Alembic'ом (никакого `create_all` в рантайме).
@@ -72,7 +81,11 @@ Swagger: `http://127.0.0.1:8000/docs`
 - `POST /auth/login`, `GET /auth/me`, `POST /auth/register` — аутентификация
 - `/people` — клиенты (+ `/people/{id}/tags`, `/people/{id}/passport`)
 - `/bikes` — велосипеды
-- `/repairs` — ремонты (+ `/repairs/{id}/services`, `/repairs/{id}/parts`, `/repairs/{id}/summary`)
+- `/repairs` — ремонты (+ `/repairs/{id}/services`, `/repairs/{id}/parts`,
+  `/repairs/{id}/summary`, `/repairs/bikes/{bike_id}/history`,
+  `/repairs/people/{person_id}/history`). `problem_description` необязателен
+  при создании/обновлении (пустая строка допустима — модель `Repair.problem_description`
+  в БД `NOT NULL`, `None` конвертируется в `""` в самом эндпоинте).
 - `/parts` — запчасти и склад (`?low_stock=true` — позиции с `quantity <= min_stock`)
 - `/services` — каталог услуг
 - `/rentals` — аренды (+ `/rentals/{id}/close`)

@@ -420,7 +420,6 @@ async function addServiceToRepair() {
 }
 
 async function addNewServiceAndAttach() {
-  console.log('addNewServiceAndAttach called');
   if (!repairId.value) {
     notice.value = 'Сначала создайте ремонт.'
     return
@@ -644,7 +643,6 @@ function formatRubles(value) {
               v-model="form.problem_description"
               rows="4"
               placeholder="Опишите неисправность..."
-              required
           ></textarea>
         </label>
       </div>
@@ -695,7 +693,7 @@ function formatRubles(value) {
       </div>
     </form>
 
-    <div class="repair-sections">
+    <div v-if="isEditing" class="repair-sections">
       <section class="repair-card">
         <div class="repair-card-head">
           <div>
