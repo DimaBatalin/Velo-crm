@@ -68,6 +68,7 @@ const searchQuery    = ref('')
 const selectedStatus = ref('')
 const isLoading      = ref(false)
 const toast          = ref({ text: '', type: '' })
+const sortState      = ref({ key: null, dir: 'asc' })
 
 const people  = ref([])
 const bikes   = ref([])
@@ -388,12 +389,92 @@ function selectPage(page) {
   searchQuery.value    = ''
   selectedStatus.value = ''
   toast.value          = { text: '', type: '' }
+  sortState.value      = { key: null, dir: 'asc' }
   closeAllForms()
   loadPage(page)
   if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
     isSidebarOpen.value = false
   }
 }
+
+// ── Sorting ───────────────────────────────────────────────
+function toggleSort(key) {
+  if (sortState.value.key === key) {
+    sortState.value = { key, dir: sortState.value.dir === 'asc' ? 'desc' : 'asc' }
+  } else {
+    sortState.value = { key, dir: 'asc' }
+  }
+}
+
+function sortArrow(key) {
+  if (sortState.value.key !== key) return ''
+  return sortState.value.dir === 'asc' ? '▲' : '▼'
+}
+
+function compareSortValues(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a - b
+  return String(a).localeCompare(String(b), 'ru')
+}
+
+const sortAccessors = {
+  dashboard: {
+    id:         row => row.id,
+    bike:       row => bikeById.value[row.bike_id]?.serial_number || '',
+    client:     row => personById.value[row.person_id] || '',
+    status:     row => rentalStatusLabels.value[row.status] || row.status || '',
+    price:      row => row.price_per_day ?? -Infinity,
+    started_at: row => row.started_at ? new Date(row.started_at).getTime() : 0,
+    ended_at:   row => row.ended_at ? new Date(row.ended_at).getTime() : 0,
+  },
+  couriers: {
+    fio:      row => [row.last_name, row.first_name, row.middle_name].filter(Boolean).join(' '),
+    phone:    row => row.phone || '',
+    passport: row => (row.passport?.series || row.passport?.number) ? 1 : 0,
+    status:   row => personStatusLabels.value[row.status] || row.status || '',
+    tags:     row => (row.tags || []).join(', '),
+    bikes:    row => getActiveBikeVins(row),
+  },
+  bicycles: {
+    vin:        row => row.serial_number || '',
+    type:       row => row.type || '',
+    brand:      row => [row.brand, row.model].filter(Boolean).join(' '),
+    status:     row => bikeStatusLabels.value[row.status] || row.status || '',
+    lastClient: row => getLastClientText(row),
+  },
+  repairs: {
+    id:          row => row.id,
+    bike:        row => bikeById.value[row.bike_id]?.serial_number || '',
+    client:      row => personById.value[row.client_id] || '',
+    description: row => row.problem_description || '',
+    status:      row => repairStatusLabels.value[row.status] || row.status || '',
+    cost:        row => row.total_cost ?? -Infinity,
+    created_at:  row => row.created_at ? new Date(row.created_at).getTime() : 0,
+  },
+  parts: {
+    name:     row => row.name || '',
+    category: row => row.category || '',
+    owner:    row => ownerLabels.value[row.owner] || row.owner || '',
+    quantity: row => row.quantity ?? 0,
+    price:    row => row.sale_price ?? -Infinity,
+  },
+  history: {
+    type:        row => row.event_type || '',
+    bike:        row => bikeById.value[row.bike_id]?.serial_number || '',
+    client:      row => personById.value[row.person_id] || '',
+    description: row => row.description || '',
+    status:      row => row.status_label || '',
+    created_at:  row => row.created_at ? new Date(row.created_at).getTime() : 0,
+  },
+}
+
+const sortedRows = computed(() => {
+  const rows = [...filteredRows.value]
+  const { key, dir } = sortState.value
+  const accessor = key && sortAccessors[activePage.value]?.[key]
+  if (!accessor) return rows
+  const sign = dir === 'asc' ? 1 : -1
+  return rows.sort((a, b) => sign * compareSortValues(accessor(a), accessor(b)))
+})
 
 function onContentClick() {
   if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
@@ -928,19 +1009,19 @@ watch([searchQuery, selectedStatus], () => {
           <table v-if="activePage === 'dashboard'" class="table">
             <thead>
             <tr>
-              <th>№</th>
-              <th>Велосипед</th>
+              <th class="th-sortable" @click="toggleSort('id')">№ <span class="sort-arrow">{{ sortArrow('id') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('bike')">Велосипед <span class="sort-arrow">{{ sortArrow('bike') }}</span></th>
               <th>Тип</th>
-              <th>Клиент</th>
-              <th>Статус</th>
-              <th class="col-right">₽/день</th>
-              <th>Начало</th>
-              <th>Конец</th>
+              <th class="th-sortable" @click="toggleSort('client')">Клиент <span class="sort-arrow">{{ sortArrow('client') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('status')">Статус <span class="sort-arrow">{{ sortArrow('status') }}</span></th>
+              <th class="col-right th-sortable" @click="toggleSort('price')">₽/день <span class="sort-arrow">{{ sortArrow('price') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('started_at')">Начало <span class="sort-arrow">{{ sortArrow('started_at') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('ended_at')">Конец <span class="sort-arrow">{{ sortArrow('ended_at') }}</span></th>
               <th></th>
             </tr>
             </thead>
             <tbody>
-            <tr v-for="row in filteredRows" :key="row.id" class="row-clickable" @click="startEditRental(row)" title="Открыть аренду">
+            <tr v-for="row in sortedRows" :key="row.id" class="row-clickable" @click="startEditRental(row)" title="Открыть аренду">
               <td class="td-mono" data-label="№">{{ row.id }}</td>
               <td class="td-vin td-link" data-label="Велосипед" title="Открыть велосипед" @click.stop="openBikeById(row.bike_id)">
                 {{ bikeById[row.bike_id]?.serial_number || `#${row.bike_id}` }}
@@ -973,7 +1054,7 @@ watch([searchQuery, selectedStatus], () => {
                 >✕</button>
               </td>
             </tr>
-            <tr v-if="!isLoading && filteredRows.length === 0">
+            <tr v-if="!isLoading && sortedRows.length === 0">
               <td colspan="9" class="empty-row">Аренды не найдены</td>
             </tr>
             </tbody>
@@ -983,16 +1064,16 @@ watch([searchQuery, selectedStatus], () => {
           <table v-else-if="activePage === 'couriers'" class="table">
             <thead>
             <tr>
-              <th>ФИО</th>
-              <th>Телефон</th>
-              <th>Паспорт</th>
-              <th>Статус</th>
-              <th>Теги</th>
-              <th>Велосипеды в аренде</th>
+              <th class="th-sortable" @click="toggleSort('fio')">ФИО <span class="sort-arrow">{{ sortArrow('fio') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('phone')">Телефон <span class="sort-arrow">{{ sortArrow('phone') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('passport')">Паспорт <span class="sort-arrow">{{ sortArrow('passport') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('status')">Статус <span class="sort-arrow">{{ sortArrow('status') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('tags')">Теги <span class="sort-arrow">{{ sortArrow('tags') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('bikes')">Велосипеды в аренде <span class="sort-arrow">{{ sortArrow('bikes') }}</span></th>
             </tr>
             </thead>
             <tbody>
-            <tr v-for="row in filteredRows" :key="row.id"
+            <tr v-for="row in sortedRows" :key="row.id"
                 class="row-clickable" @click="startEditPerson(row)"
                 title="Открыть клиента">
               <td class="td-name" data-label="ФИО">{{ `${row.first_name} ${row.last_name}` }}</td>
@@ -1017,7 +1098,7 @@ watch([searchQuery, selectedStatus], () => {
                 {{ getActiveBikeVins(row) }}
               </td>
             </tr>
-            <tr v-if="!isLoading && filteredRows.length === 0">
+            <tr v-if="!isLoading && sortedRows.length === 0">
               <td colspan="6" class="empty-row">Клиенты не найдены</td>
             </tr>
             </tbody>
@@ -1027,15 +1108,15 @@ watch([searchQuery, selectedStatus], () => {
           <table v-else-if="activePage === 'bicycles'" class="table">
             <thead>
             <tr>
-              <th>VIN</th>
-              <th>Тип</th>
-              <th>Марка / Модель</th>
-              <th>Статус</th>
-              <th>Последний клиент</th>
+              <th class="th-sortable" @click="toggleSort('vin')">VIN <span class="sort-arrow">{{ sortArrow('vin') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('type')">Тип <span class="sort-arrow">{{ sortArrow('type') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('brand')">Марка / Модель <span class="sort-arrow">{{ sortArrow('brand') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('status')">Статус <span class="sort-arrow">{{ sortArrow('status') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('lastClient')">Последний клиент <span class="sort-arrow">{{ sortArrow('lastClient') }}</span></th>
             </tr>
             </thead>
             <tbody>
-            <tr v-for="row in filteredRows" :key="row.id"
+            <tr v-for="row in sortedRows" :key="row.id"
                 class="row-clickable" @click="startEditBike(row)"
                 title="Открыть велосипед">
               <td class="td-vin" data-label="VIN">{{ row.serial_number || '—' }}</td>
@@ -1062,7 +1143,7 @@ watch([searchQuery, selectedStatus], () => {
                 {{ getLastClientText(row) }}
               </td>
             </tr>
-            <tr v-if="!isLoading && filteredRows.length === 0">
+            <tr v-if="!isLoading && sortedRows.length === 0">
               <td colspan="5" class="empty-row">Велосипеды не найдены</td>
             </tr>
             </tbody>
@@ -1072,17 +1153,17 @@ watch([searchQuery, selectedStatus], () => {
           <table v-else-if="activePage === 'repairs'" class="table">
             <thead>
             <tr>
-              <th>№</th>
-              <th>Велосипед</th>
-              <th>Клиент</th>
-              <th>Описание</th>
-              <th>Статус</th>
-              <th class="col-right">Стоимость</th>
-              <th>Дата</th>
+              <th class="th-sortable" @click="toggleSort('id')">№ <span class="sort-arrow">{{ sortArrow('id') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('bike')">Велосипед <span class="sort-arrow">{{ sortArrow('bike') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('client')">Клиент <span class="sort-arrow">{{ sortArrow('client') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('description')">Описание <span class="sort-arrow">{{ sortArrow('description') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('status')">Статус <span class="sort-arrow">{{ sortArrow('status') }}</span></th>
+              <th class="col-right th-sortable" @click="toggleSort('cost')">Стоимость <span class="sort-arrow">{{ sortArrow('cost') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('created_at')">Дата <span class="sort-arrow">{{ sortArrow('created_at') }}</span></th>
             </tr>
             </thead>
             <tbody>
-            <tr v-for="row in filteredRows" :key="row.id" class="row-clickable" @click="startEditRepair(row)" title="Открыть ремонт">
+            <tr v-for="row in sortedRows" :key="row.id" class="row-clickable" @click="startEditRepair(row)" title="Открыть ремонт">
               <td class="td-mono" data-label="№">{{ row.id }}</td>
               <td class="td-vin td-link" data-label="Велосипед" title="Открыть велосипед" @click.stop="openBikeById(row.bike_id)">
                 {{ bikeById[row.bike_id]?.serial_number || `#${row.bike_id}` }}
@@ -1099,7 +1180,7 @@ watch([searchQuery, selectedStatus], () => {
               <td class="col-right td-price" data-label="Стоимость">{{ row.total_cost != null ? `${row.total_cost} ₽` : '—' }}</td>
               <td class="td-date" data-label="Дата">{{ row.created_at ? new Date(row.created_at).toLocaleDateString('ru') : '—' }}</td>
             </tr>
-            <tr v-if="!isLoading && filteredRows.length === 0">
+            <tr v-if="!isLoading && sortedRows.length === 0">
               <td colspan="7" class="empty-row">Ремонты не найдены</td>
             </tr>
             </tbody>
@@ -1109,15 +1190,15 @@ watch([searchQuery, selectedStatus], () => {
           <table v-else-if="activePage === 'parts'" class="table">
             <thead>
             <tr>
-              <th>Наименование</th>
-              <th>Категория</th>
-              <th>Принадлежность</th>
-              <th class="col-right">Кол-во</th>
-              <th class="col-right">Цена продажи</th>
+              <th class="th-sortable" @click="toggleSort('name')">Наименование <span class="sort-arrow">{{ sortArrow('name') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('category')">Категория <span class="sort-arrow">{{ sortArrow('category') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('owner')">Принадлежность <span class="sort-arrow">{{ sortArrow('owner') }}</span></th>
+              <th class="col-right th-sortable" @click="toggleSort('quantity')">Кол-во <span class="sort-arrow">{{ sortArrow('quantity') }}</span></th>
+              <th class="col-right th-sortable" @click="toggleSort('price')">Цена продажи <span class="sort-arrow">{{ sortArrow('price') }}</span></th>
             </tr>
             </thead>
             <tbody>
-            <tr v-for="row in filteredRows" :key="row.id">
+            <tr v-for="row in sortedRows" :key="row.id">
               <td class="td-name" data-label="Наименование">{{ row.name }}</td>
               <td data-label="Категория"><span class="category-tag">{{ row.category || '—' }}</span></td>
               <td data-label="Принадлежность">
@@ -1134,7 +1215,7 @@ watch([searchQuery, selectedStatus], () => {
                 {{ row.sale_price != null ? `${row.sale_price} ₽` : '—' }}
               </td>
             </tr>
-            <tr v-if="!isLoading && filteredRows.length === 0">
+            <tr v-if="!isLoading && sortedRows.length === 0">
               <td colspan="5" class="empty-row">Запчасти не найдены</td>
             </tr>
             </tbody>
@@ -1144,16 +1225,16 @@ watch([searchQuery, selectedStatus], () => {
           <table v-else-if="activePage === 'history'" class="table">
             <thead>
             <tr>
-              <th>Тип</th>
-              <th>Велосипед</th>
-              <th>Клиент</th>
-              <th>Описание</th>
-              <th>Статус</th>
-              <th>Дата</th>
+              <th class="th-sortable" @click="toggleSort('type')">Тип <span class="sort-arrow">{{ sortArrow('type') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('bike')">Велосипед <span class="sort-arrow">{{ sortArrow('bike') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('client')">Клиент <span class="sort-arrow">{{ sortArrow('client') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('description')">Описание <span class="sort-arrow">{{ sortArrow('description') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('status')">Статус <span class="sort-arrow">{{ sortArrow('status') }}</span></th>
+              <th class="th-sortable" @click="toggleSort('created_at')">Дата <span class="sort-arrow">{{ sortArrow('created_at') }}</span></th>
             </tr>
             </thead>
             <tbody>
-            <tr v-for="row in filteredRows" :key="row.id" class="row-clickable" @click="openHistoryRow(row)" title="Открыть запись">
+            <tr v-for="row in sortedRows" :key="row.id" class="row-clickable" @click="openHistoryRow(row)" title="Открыть запись">
               <td data-label="Тип">
                   <span :class="['event-badge', row.event_type === 'Аренда' ? 'ev-rental' : 'ev-repair']">
                     {{ row.event_type }}
@@ -1169,7 +1250,7 @@ watch([searchQuery, selectedStatus], () => {
               <td data-label="Статус"><span :class="['badge', row.badge]">{{ row.status_label }}</span></td>
               <td class="td-date" data-label="Дата">{{ row.created_at ? new Date(row.created_at).toLocaleDateString('ru') : '—' }}</td>
             </tr>
-            <tr v-if="!isLoading && filteredRows.length === 0">
+            <tr v-if="!isLoading && sortedRows.length === 0">
               <td colspan="6" class="empty-row">История пуста</td>
             </tr>
             </tbody>
@@ -1433,6 +1514,9 @@ body {
   font-size: 0.72rem; font-weight: 600; color: #6b7280;
   text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
 }
+.th-sortable { cursor: pointer; user-select: none; transition: color 0.12s; }
+.th-sortable:hover { color: #7c3aed; }
+.sort-arrow { font-size: 0.85em; color: #7c3aed; display: inline-block; width: 0.8em; }
 .table td {
   padding: 13px 16px; border-bottom: 1px solid #f3f4f6;
   font-size: 0.9rem; color: #374151; vertical-align: middle;
