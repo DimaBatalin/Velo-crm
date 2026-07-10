@@ -63,6 +63,7 @@ async def _get_repair_or_404(
                 selectinload(Repair.repair_services).selectinload(RepairService.service),
                 selectinload(Repair.repair_parts).selectinload(RepairPart.part),
                 selectinload(Repair.closed_by),
+                selectinload(Repair.created_by),
             )
             .where(Repair.id == repair_id)
         )
@@ -124,6 +125,8 @@ def _build_detail_response(repair: Repair, total_cost: float | None = None) -> R
         completed_at=repair.completed_at,
         closed_by_user_id=repair.closed_by_user_id,
         closed_by_name=repair.closed_by.full_name if repair.closed_by else None,
+        created_by_user_id=repair.created_by_user_id,
+        created_by_name=repair.created_by.full_name if repair.created_by else None,
         total_cost=total_cost,
         created_at=repair.created_at,
         updated_at=repair.updated_at,
@@ -136,6 +139,72 @@ def _build_detail_response(repair: Repair, total_cost: float | None = None) -> R
             for rp in repair.repair_parts
         ],
     )
+
+
+def _build_list_response(repair: Repair, total_cost: float) -> RepairResponse:
+    """Собирает RepairResponse для списков/истории с именами сотрудников,
+    создавшего и закрывшего ремонт. Требует загруженных связей
+    closed_by / created_by (см. _query_repairs)."""
+    return RepairResponse(
+        id=repair.id,
+        bike_id=repair.bike_id,
+        client_id=repair.client_id,
+        problem_description=repair.problem_description,
+        status=repair.status,
+        started_at=repair.started_at,
+        completed_at=repair.completed_at,
+        closed_by_user_id=repair.closed_by_user_id,
+        closed_by_name=repair.closed_by.full_name if repair.closed_by else None,
+        created_by_user_id=repair.created_by_user_id,
+        created_by_name=repair.created_by.full_name if repair.created_by else None,
+        total_cost=float(total_cost),
+        created_at=repair.created_at,
+        updated_at=repair.updated_at,
+    )
+
+
+async def _query_repairs(
+        db: AsyncSession,
+        *,
+        bike_id: int | None = None,
+        client_id: int | None = None,
+        status: RepairStatus | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+) -> list[RepairResponse]:
+    """Единый источник для списка ремонтов и истории: считает total_cost
+    без N+1 и подгружает сотрудников (created_by / closed_by)."""
+    services_sq, parts_sq = _total_cost_subqueries()
+
+    query = (
+        select(
+            Repair,
+            (
+                func.coalesce(services_sq.c.services_sum, 0)
+                + func.coalesce(parts_sq.c.parts_sum, 0)
+            ).label("total_cost"),
+        )
+        .outerjoin(services_sq, services_sq.c.repair_id == Repair.id)
+        .outerjoin(parts_sq, parts_sq.c.repair_id == Repair.id)
+        .options(
+            selectinload(Repair.closed_by),
+            selectinload(Repair.created_by),
+        )
+    )
+
+    if bike_id:
+        query = query.where(Repair.bike_id == bike_id)
+    if client_id:
+        query = query.where(Repair.client_id == client_id)
+    if status:
+        query = query.where(Repair.status == status)
+
+    query = query.order_by(Repair.started_at.desc())
+    if limit is not None:
+        query = query.limit(limit).offset(offset)
+
+    result = await db.execute(query)
+    return [_build_list_response(repair, total_cost) for repair, total_cost in result.all()]
 
 
 # ──────────────────────────────────────────────
@@ -194,54 +263,14 @@ async def get_repairs(
         offset: int = 0,
         db: AsyncSession = Depends(get_db),
 ):
-    services_sq, parts_sq = _total_cost_subqueries()
-
-    query = (
-        select(
-            Repair,
-            (
-                func.coalesce(services_sq.c.services_sum, 0)
-                + func.coalesce(parts_sq.c.parts_sum, 0)
-            ).label("total_cost"),
-        )
-        .outerjoin(services_sq, services_sq.c.repair_id == Repair.id)
-        .outerjoin(parts_sq, parts_sq.c.repair_id == Repair.id)
-        .options(selectinload(Repair.closed_by))
+    return await _query_repairs(
+        db,
+        bike_id=bike_id,
+        client_id=client_id,
+        status=status,
+        limit=limit,
+        offset=offset,
     )
-
-    if bike_id:
-        query = query.where(Repair.bike_id == bike_id)
-
-    if client_id:
-        query = query.where(Repair.client_id == client_id)
-
-    if status:
-        query = query.where(Repair.status == status)
-
-    query = query.order_by(Repair.started_at.desc()).limit(limit).offset(offset)
-
-    result = await db.execute(query)
-
-    responses = []
-    for repair, total_cost in result.all():
-        responses.append(
-            RepairResponse(
-                id=repair.id,
-                bike_id=repair.bike_id,
-                client_id=repair.client_id,
-                problem_description=repair.problem_description,
-                status=repair.status,
-                started_at=repair.started_at,
-                completed_at=repair.completed_at,
-                closed_by_user_id=repair.closed_by_user_id,
-                closed_by_name=repair.closed_by.full_name if repair.closed_by else None,
-                total_cost=float(total_cost),
-                created_at=repair.created_at,
-                updated_at=repair.updated_at,
-            )
-        )
-
-    return responses
 
 
 @router.get(
@@ -599,13 +628,7 @@ async def get_bike_repair_history(
             detail="Bike not found",
         )
 
-    result = await db.execute(
-        select(Repair)
-        .where(Repair.bike_id == bike_id)
-        .order_by(Repair.started_at.desc())
-    )
-
-    return result.scalars().all()
+    return await _query_repairs(db, bike_id=bike_id)
 
 
 @router.get(
@@ -625,10 +648,4 @@ async def get_person_repair_history(
             detail="Person not found",
         )
 
-    result = await db.execute(
-        select(Repair)
-        .where(Repair.client_id == person_id)
-        .order_by(Repair.started_at.desc())
-    )
-
-    return result.scalars().all()
+    return await _query_repairs(db, client_id=person_id)

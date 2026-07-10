@@ -918,6 +918,7 @@ watch([searchQuery, selectedStatus], () => {
                   v-model:modelValue="newRepair"
                   :bikes="bikes"
                   :people="people"
+                  :current-user="currentUser"
                   :title="repairFormTitle"
                   :submitLabel="repairSubmitLabel"
                   @save="submitRepair"

@@ -46,8 +46,22 @@ async function request(path, options = {}) {
   }
 
   if (!response.ok) {
+    // Пытаемся достать понятное сообщение из тела ({"detail": "..."}),
+    // чтобы UI показывал причину, а не сырой "API request failed: 422 {...}".
     const errorText = await response.text()
-    throw new Error(`API request failed: ${response.status} ${errorText}`)
+    let message = `Ошибка ${response.status}`
+    try {
+      const parsed = JSON.parse(errorText)
+      if (typeof parsed.detail === 'string') {
+        message = parsed.detail
+      } else if (Array.isArray(parsed.detail)) {
+        // Ошибки валидации FastAPI: [{loc, msg, ...}]
+        message = parsed.detail.map(e => e.msg).filter(Boolean).join('; ') || message
+      }
+    } catch {
+      if (errorText) message = errorText
+    }
+    throw new Error(message)
   }
 
   if (response.status === 204) return null
@@ -110,6 +124,12 @@ export async function updateRepair(repairId, data) {
 
 export async function deleteRepair(repairId) {
   return request(`/repairs/${repairId}`, { method: 'DELETE' })
+}
+
+// ── Users ─────────────────────────────────────────────────
+export async function getUsers({ active_only = true } = {}) {
+  const query = buildQuery({ active_only })
+  return request(`/auth/users?${query.toString()}`)
 }
 
 export async function addRepairService(repairId, data) {

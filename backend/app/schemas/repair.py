@@ -208,6 +208,11 @@ class RepairResponse(BaseModel):
 
     created_by_user_id: int | None = None
 
+    created_by_name: str | None = Field(
+        None,
+        description="Имя сотрудника, создавшего ремонт",
+    )
+
     total_cost: float | None = Field(
         None,
         description="Сумма всех услуг и запчастей (по sale_price) данного ремонта",

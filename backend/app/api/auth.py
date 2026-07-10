@@ -50,6 +50,24 @@ async def me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+@router.get(
+    "/users",
+    response_model=list[UserResponse],
+    summary="Список сотрудников",
+    description="Нужен, в частности, для выбора сотрудника, закрывающего ремонт.",
+)
+async def list_users(
+    active_only: bool = True,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    query = select(User).order_by(User.full_name)
+    if active_only:
+        query = query.where(User.is_active.is_(True))
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
 @router.post(
     "/register",
     response_model=UserResponse,

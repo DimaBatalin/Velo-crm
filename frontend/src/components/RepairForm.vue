@@ -10,6 +10,7 @@ import {
   getRepair,
   getRepairSummary,
   getServices,
+  getUsers,
   removeRepairPart,
   removeRepairService,
   updateRepair,
@@ -22,6 +23,7 @@ const props = defineProps({
   submitLabel: { type: String, default: '' },
   bikes: { type: Array, default: () => [] },
   people: { type: Array, default: () => [] },
+  currentUser: { type: Object, default: null },
 })
 
 const emit = defineEmits(['update:modelValue', 'save', 'saved', 'close'])
@@ -53,6 +55,7 @@ const createEmptyForm = () => ({
   client_id: null,
   problem_description: '',
   status: 'new',
+  closed_by_user_id: null,
 })
 
 const form = ref(createEmptyForm())
@@ -61,6 +64,7 @@ const repairDetail = ref(null)
 const summary = ref(null)
 const servicesCatalog = ref([])
 const partsCatalog = ref([])
+const usersCatalog = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const notice = ref('')
@@ -112,6 +116,15 @@ const selectedPerson = computed(() => props.people.find(person => person.id === 
 
 const repairServices = computed(() => repairDetail.value?.services || [])
 const repairParts = computed(() => repairDetail.value?.parts || [])
+
+const isDone = computed(() => form.value.status === 'done')
+// Ремонт уже был закрыт ранее — closer менять не даём (только показываем).
+const alreadyClosed = computed(() => Boolean(repairDetail.value?.closed_by_user_id))
+
+function displayUser(user) {
+  if (!user) return '—'
+  return user.full_name || user.email || `#${user.id}`
+}
 
 const filteredServicesCatalog = computed(() => {
   const query = serviceSearch.value.trim().toLowerCase()
@@ -235,12 +248,14 @@ function syncBikeFromClient(clientId) {
 
 async function loadCatalogs() {
   try {
-    const [services, parts] = await Promise.all([
+    const [services, parts, users] = await Promise.all([
       getServices({ limit: 100 }),
       getParts({ limit: 100 }),
+      getUsers(),
     ])
     servicesCatalog.value = services
     partsCatalog.value = parts
+    usersCatalog.value = users
   } catch (error) {
     console.error('Не удалось загрузить справочники для ремонта', error)
     notice.value = 'Не удалось загрузить справочники.'
@@ -272,6 +287,7 @@ async function loadRepairData(id) {
       client_id: detail.client_id,
       problem_description: detail.problem_description ?? '',
       status: detail.status ?? 'new',
+      closed_by_user_id: detail.closed_by_user_id ?? null,
     }
     nextTick(() => { syncLock.value = false })
   } catch (error) {
@@ -308,6 +324,7 @@ watch(
         client_id: value.client_id ?? null,
         problem_description: value.problem_description ?? '',
         status: value.status ?? 'new',
+        closed_by_user_id: value.closed_by_user_id ?? null,
       }
       const nextJson = JSON.stringify(nextForm)
       if (nextJson !== lastSyncedFormJson.value) {
@@ -352,6 +369,17 @@ watch(
     },
 )
 
+// При переводе в «Выполнен» по умолчанию закрывающим считается текущий
+// пользователь. Значение можно поменять вручную в выпадающем списке.
+watch(
+    () => form.value.status,
+    (status) => {
+      if (status === 'done' && !form.value.closed_by_user_id && props.currentUser?.id) {
+        form.value.closed_by_user_id = props.currentUser.id
+      }
+    },
+)
+
 watch(
     form,
     (value) => {
@@ -373,18 +401,29 @@ async function submitBaseRepair() {
     return
   }
 
+  // При переводе в «Выполнен» бэкенд требует указать закрывающего сотрудника.
+  if (isDone.value && !alreadyClosed.value && !form.value.closed_by_user_id) {
+    notice.value = 'Укажите, кто закрывает ремонт.'
+    return
+  }
+
   saving.value = true
   try {
-    await updateRepair(repairId.value, {
+    const payload = {
       problem_description: form.value.problem_description.trim(),
       status: form.value.status,
-    })
+    }
+    // Отправляем закрывающего только при закрытии — иначе бэкенду это поле не нужно.
+    if (isDone.value && !alreadyClosed.value) {
+      payload.closed_by_user_id = form.value.closed_by_user_id
+    }
+    await updateRepair(repairId.value, payload)
     notice.value = 'Ремонт сохранён.'
     await loadRepairData(repairId.value)
     emit('saved', repairDetail.value)
   } catch (error) {
     console.error('Не удалось сохранить ремонт', error)
-    notice.value = 'Не удалось сохранить ремонт.'
+    notice.value = error?.message || 'Не удалось сохранить ремонт.'
   } finally {
     saving.value = false
   }
@@ -631,10 +670,23 @@ function formatRubles(value) {
           </select>
         </label>
 
+        <label v-if="isEditing && isDone" class="field">
+          <span class="field-label">Кто закрывает ремонт <span class="req">*</span></span>
+          <select v-model.number="form.closed_by_user_id" :disabled="alreadyClosed">
+            <option :value="null">Выберите сотрудника</option>
+            <option v-for="user in usersCatalog" :key="user.id" :value="user.id">
+              {{ displayUser(user) }}
+            </option>
+          </select>
+          <span v-if="alreadyClosed" class="field-hint">Ремонт уже закрыт — сотрудника изменить нельзя.</span>
+        </label>
+
         <div class="repair-meta">
           <div><span>Ремонт</span><strong>{{ repairId ? `#${repairId}` : '—' }}</strong></div>
           <div><span>Велосипед</span><strong>{{ displayBike(selectedBike) }}</strong></div>
           <div><span>Клиент</span><strong>{{ displayPerson(selectedPerson) }}</strong></div>
+          <div v-if="isEditing"><span>Создал</span><strong>{{ repairDetail?.created_by_name || '—' }}</strong></div>
+          <div v-if="isEditing"><span>Закрыл</span><strong>{{ repairDetail?.closed_by_name || '—' }}</strong></div>
         </div>
 
         <label class="field full-width">
@@ -873,6 +925,12 @@ function formatRubles(value) {
   color: #6b7280;
   font-size: 0.9rem;
   max-width: 720px;
+}
+
+.field-hint {
+  margin-top: 4px;
+  color: #9ca3af;
+  font-size: 0.78rem;
 }
 
 .repair-notice {
