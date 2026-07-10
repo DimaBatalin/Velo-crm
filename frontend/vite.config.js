@@ -15,5 +15,13 @@ export default defineConfig({
   server: {
     host: true,
     port: Number(process.env.PORT) || 5173,
+    // Mirrors the nginx /api rule in production: strip the prefix, forward to backend.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_DEV_API_TARGET || 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
   },
 })

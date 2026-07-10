@@ -1,15 +1,35 @@
 services:
 
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: velo_nginx
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+    depends_on:
+      - backend
+      - frontend
+
   backend:
     build: ./backend
     container_name: velo_backend
     restart: unless-stopped
 
-    ports:
-      - "8000:8000"
+    # Not published to the host — only reachable through nginx.
+    expose:
+      - "8000"
 
     env_file:
       - .env
+
+    environment:
+      # nginx strips /api before forwarding — tell FastAPI so /api/docs works.
+      ROOT_PATH: /api
 
     depends_on:
       postgres:
@@ -20,8 +40,8 @@ services:
     container_name: velo_frontend
     restart: unless-stopped
 
-    ports:
-      - "3000:80"
+    expose:
+      - "80"
 
     depends_on:
       - backend

@@ -13,6 +13,22 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────
     DATABASE_URL: str
 
+    # Log every SQL statement. Debugging only — very noisy in production.
+    SQL_ECHO: bool = False
+
+    # ── Proxy ─────────────────────────────────────────────────
+    # Prefix that nginx strips before forwarding (e.g. "/api"). Empty when the
+    # app is reached directly. FastAPI uses it to build correct openapi/docs URLs.
+    ROOT_PATH: str = ""
+
+    # ── CORS ──────────────────────────────────────────────────
+    # Comma-separated list of allowed frontend origins.
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
+
     # ── JWT ───────────────────────────────────────────────────
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"

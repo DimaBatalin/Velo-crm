@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import { API_URL } from '@/api/config'
 
 const emit = defineEmits(['close', 'created'])
 
@@ -28,7 +29,7 @@ async function handleSubmit() {
   loading.value = true
   try {
     const token = localStorage.getItem('velo_token')
-    const res = await fetch('http://localhost:8000/auth/register', {
+    const res = await fetch(`${API_URL}/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -4,6 +4,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.init_db import create_tables
+from app.core.config import settings
 from app.core.deps import get_current_user
 
 from app.api.auth import router as auth_router
@@ -28,16 +29,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VELO API",
     lifespan=lifespan,
+    root_path=settings.ROOT_PATH,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

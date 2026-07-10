@@ -1,0 +1,8 @@
+# Файлы, которые исполняет Linux (сервер и Docker-образы), обязаны иметь LF.
+# Без этого core.autocrlf=true на Windows превратит их в CRLF, и внутри
+# контейнера получим `bad interpreter: /bin/bash^M`.
+*.sh            text eol=lf
+entrypoint.sh   text eol=lf
+Dockerfile      text eol=lf
+*.conf          text eol=lf
+.env.example    text eol=lf
