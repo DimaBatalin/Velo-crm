@@ -1503,7 +1503,7 @@ body {
 .passport-tag.loaded  { background: #f0fdf4; color: #15803d; }
 .passport-tag.missing { background: #f9fafb; color: #9ca3af; }
 
-.td-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.td-tags { flex-wrap: wrap; gap: 4px; align-items: center; }
 .person-tag-chip {
   font-size: 0.72rem; font-weight: 600;
   padding: 3px 9px; border-radius: 999px;
