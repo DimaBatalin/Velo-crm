@@ -12,9 +12,14 @@ from app.db.session import get_db
 from app.core.deps import require_roles
 from app.enums.user_role import UserRole
 
+from sqlalchemy import delete as sa_delete
+
 from app.enums.person_status import PersonStatus
+from app.models.passport import PassportData
 from app.models.person import Person
+from app.models.photo import Photo
 from app.models.rental import Rental
+from app.models.repair import Repair
 from app.models.tag import PersonTag, Tag
 from app.schemas.person import PersonCreate, PersonResponse, PersonUpdate
 from app.schemas.tag import PersonTagAdd
@@ -30,6 +35,7 @@ def _person_details_query():
     return select(Person).options(
         selectinload(Person.rentals).selectinload(Rental.bike),
         selectinload(Person.person_tags).selectinload(PersonTag.tag),
+        selectinload(Person.passport),
     )
 
 
@@ -176,6 +182,28 @@ async def delete_person(
             status_code=404,
             detail="Person not found",
         )
+
+    # Аренды и ремонты — история, каскада на них нет: раньше удаление
+    # клиента с историей падало с 500 (нарушение FK). Отвечаем 409.
+    has_rental = await db.execute(
+        select(Rental.id).where(Rental.person_id == person_id).limit(1)
+    )
+    has_repair = await db.execute(
+        select(Repair.id).where(Repair.client_id == person_id).limit(1)
+    )
+    if has_rental.first() or has_repair.first():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "У клиента есть аренды или ремонты — удаление сотрёт историю. "
+                "Вместо удаления переведите его в статус «Архивирован» или «Уволен»."
+            ),
+        )
+
+    # Паспорт и фото — не история, а атрибуты клиента: удаляем вместе с ним
+    # (FK без каскада, иначе удаление упадёт).
+    await db.execute(sa_delete(PassportData).where(PassportData.person_id == person_id))
+    await db.execute(sa_delete(Photo).where(Photo.person_id == person_id))
 
     await db.delete(person)
     await db.commit()

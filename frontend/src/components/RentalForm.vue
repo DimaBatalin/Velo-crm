@@ -85,6 +85,17 @@ const availableBikes = computed(() =>
     ),
 )
 
+// Аренду можно оформить только активному клиенту (не заблокированному,
+// не архивному, не уволенному). Текущего выбранного оставляем в списке,
+// чтобы при редактировании старой аренды форма не «теряла» клиента.
+const availablePeople = computed(() =>
+    props.people.filter(
+        person =>
+            person.status === 'active' ||
+            person.id === localForm.value.person_id,
+    ),
+)
+
 function displayBike(bike) {
   if (!bike) return ''
 
@@ -185,7 +196,7 @@ function onSubmit() {
             </option>
 
             <option
-                v-for="person in people"
+                v-for="person in availablePeople"
                 :key="person.id"
                 :value="person.id"
             >

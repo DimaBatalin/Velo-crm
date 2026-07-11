@@ -24,8 +24,11 @@ from app.models.repair import RepairService
 from app.models.service import Service
 from app.models.user import User
 
+from app.models.rental import Rental
+
 from app.enums.owner_type import OwnerType
 from app.enums.bike_status import BikeStatus
+from app.enums.rental_status import RentalStatus
 from app.enums.repair_status import RepairStatus
 
 from app.schemas.repair import RepairCreate
@@ -78,6 +81,38 @@ async def _get_repair_or_404(
         )
 
     return repair
+
+
+OPEN_REPAIR_STATUSES = (
+    RepairStatus.NEW,
+    RepairStatus.IN_PROGRESS,
+    RepairStatus.WAITING_PARTS,
+)
+
+
+async def _bike_has_active_rental(bike_id: int, db: AsyncSession) -> bool:
+    result = await db.execute(
+        select(Rental.id)
+        .where(
+            Rental.bike_id == bike_id,
+            Rental.status == RentalStatus.ACTIVE,
+        )
+        .limit(1)
+    )
+    return result.first() is not None
+
+
+async def _release_bike_after_repair(bike_id: int, db: AsyncSession) -> None:
+    """Ремонт завершён/отменён/удалён — вернуть велосипед в оборот.
+    Если у велосипеда есть активная аренда, он возвращается в RENTED
+    (его чинили, не прерывая аренду), иначе — в READY. Статус STOLEN
+    и вручную выставленные статусы не трогаем."""
+    bike = await db.get(Bike, bike_id)
+    if bike and bike.status == BikeStatus.REPAIR:
+        if await _bike_has_active_rental(bike_id, db):
+            bike.status = BikeStatus.RENTED
+        else:
+            bike.status = BikeStatus.READY
 
 
 def _total_cost_subqueries():
@@ -229,6 +264,29 @@ async def create_repair(
             detail="Bike not found",
         )
 
+    if bike.status == BikeStatus.STOLEN:
+        raise HTTPException(
+            status_code=409,
+            detail="Велосипед числится украденным — ремонт невозможен",
+        )
+
+    # Один велосипед — один открытый ремонт: иначе запчасти и статусы
+    # расползаются по двум заказам.
+    existing_open = await db.execute(
+        select(Repair.id)
+        .where(
+            Repair.bike_id == repair_data.bike_id,
+            Repair.status.in_(OPEN_REPAIR_STATUSES),
+        )
+        .limit(1)
+    )
+    open_repair = existing_open.first()
+    if open_repair:
+        raise HTTPException(
+            status_code=409,
+            detail=f"У велосипеда уже есть открытый ремонт #{open_repair[0]}",
+        )
+
     client = await db.get(Person, repair_data.client_id)
 
     if not client:
@@ -241,6 +299,10 @@ async def create_repair(
         **{**repair_data.model_dump(), "problem_description": repair_data.problem_description or ""},
         created_by_user_id=current_user.id,
     )
+
+    # Велосипед уходит в ремонт атомарно с созданием заказа — раньше это
+    # делал фронтенд вторым запросом, и при его сбое статусы расходились.
+    bike.status = BikeStatus.REPAIR
 
     db.add(repair)
 
@@ -319,16 +381,12 @@ async def update_repair(
 
         repair.completed_at = datetime.now(timezone.utc)
 
-        bike = await db.get(Bike, repair.bike_id)
-        if bike and bike.status == BikeStatus.REPAIR:
-            bike.status = BikeStatus.READY
+        await _release_bike_after_repair(repair.bike_id, db)
 
     # При отмене ремонта велосипед тоже нужно вернуть в строй,
     # иначе он "зависает" в статусе REPAIR
     elif new_status == RepairStatus.CANCELLED:
-        bike = await db.get(Bike, repair.bike_id)
-        if bike and bike.status == BikeStatus.REPAIR:
-            bike.status = BikeStatus.READY
+        await _release_bike_after_repair(repair.bike_id, db)
 
     for field, value in update_fields.items():
         setattr(repair, field, value)
@@ -357,6 +415,10 @@ async def delete_repair(
         part = await db.get(Part, rp.part_id)
         if part:
             part.quantity += rp.quantity
+
+    # Удаляем открытый ремонт — велосипед не должен зависнуть в REPAIR
+    if repair.status in OPEN_REPAIR_STATUSES:
+        await _release_bike_after_repair(repair.bike_id, db)
 
     await db.delete(repair)
 

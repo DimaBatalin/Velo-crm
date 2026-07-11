@@ -19,6 +19,7 @@ from app.models.person import Person
 from app.models.rental import Rental
 
 from app.enums.bike_status import BikeStatus
+from app.enums.person_status import PersonStatus
 from app.enums.rental_status import RentalStatus
 
 from app.schemas.rental import RentalClose
@@ -49,6 +50,31 @@ async def _get_rental_or_404(
     return rental
 
 
+_PERSON_STATUS_RU = {
+    PersonStatus.BLOCKED: "заблокирован",
+    PersonStatus.ARCHIVED: "в архиве",
+    PersonStatus.FIRED: "уволен",
+}
+
+
+def _ensure_person_can_rent(person: Person) -> None:
+    """Аренду можно оформлять только на активного клиента."""
+    if person.status != PersonStatus.ACTIVE:
+        status_ru = _PERSON_STATUS_RU.get(person.status, person.status.value)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Нельзя оформить аренду: клиент {status_ru}",
+        )
+
+
+def _release_bike_after_rental(bike: Bike | None) -> None:
+    """Вернуть велосипед в READY, но только если он сейчас числится в аренде.
+    Если за время аренды его перевели в ремонт или пометили украденным —
+    этот статус важнее и затирать его нельзя."""
+    if bike and bike.status == BikeStatus.RENTED:
+        bike.status = BikeStatus.READY
+
+
 # ──────────────────────────────────────────────
 # CRUD
 # ──────────────────────────────────────────────
@@ -74,13 +100,19 @@ async def create_rental(
     if bike.status == BikeStatus.RENTED:
         raise HTTPException(
             status_code=409,
-            detail="Bike is already rented",
+            detail="Велосипед уже в аренде",
         )
 
     if bike.status == BikeStatus.REPAIR:
         raise HTTPException(
             status_code=409,
-            detail="Bike is currently under repair",
+            detail="Велосипед в ремонте — сначала завершите ремонт",
+        )
+
+    if bike.status == BikeStatus.STOLEN:
+        raise HTTPException(
+            status_code=409,
+            detail="Велосипед числится украденным — аренда невозможна",
         )
 
     person = await db.get(Person, rental_data.person_id)
@@ -90,6 +122,8 @@ async def create_rental(
             status_code=404,
             detail="Person not found",
         )
+
+    _ensure_person_can_rent(person)
 
     rental = Rental(
         **rental_data.model_dump(),
@@ -161,7 +195,7 @@ async def update_rental(
 ):
     rental = await _get_rental_or_404(rental_id, db)
 
-    if rental_data.person_id:
+    if rental_data.person_id and rental_data.person_id != rental.person_id:
 
         person = await db.get(Person, rental_data.person_id)
 
@@ -170,6 +204,8 @@ async def update_rental(
                 status_code=404,
                 detail="Person not found",
             )
+
+        _ensure_person_can_rent(person)
 
         rental.person_id = rental_data.person_id
 
@@ -186,13 +222,12 @@ async def update_rental(
         if new_bike.status != BikeStatus.READY:
             raise HTTPException(
                 status_code=409,
-                detail="Bike unavailable",
+                detail="Велосипед недоступен для аренды",
             )
 
         old_bike = await db.get(Bike, rental.bike_id)
 
-        if old_bike and old_bike.status == BikeStatus.RENTED:
-            old_bike.status = BikeStatus.READY
+        _release_bike_after_rental(old_bike)
 
         new_bike.status = BikeStatus.RENTED
 
@@ -241,11 +276,10 @@ async def close_rental(
     rental.ended_at = data.ended_at or datetime.now(timezone.utc)
     rental.status = RentalStatus.RETURNED
 
-    # Возвращаем велосипед в статус "готов"
+    # Возвращаем велосипед в статус "готов" (если он не в ремонте/украден)
     bike = await db.get(Bike, rental.bike_id)
 
-    if bike:
-        bike.status = BikeStatus.READY
+    _release_bike_after_rental(bike)
 
     await db.commit()
 
@@ -264,11 +298,10 @@ async def delete_rental(
 ):
     rental = await _get_rental_or_404(rental_id, db)
 
-    # Если аренда активна — возвращаем велосипед
+    # Если аренда активна — возвращаем велосипед (если он числится в аренде)
     if rental.status == RentalStatus.ACTIVE:
         bike = await db.get(Bike, rental.bike_id)
-        if bike:
-            bike.status = BikeStatus.READY
+        _release_bike_after_rental(bike)
 
     await db.delete(rental)
 

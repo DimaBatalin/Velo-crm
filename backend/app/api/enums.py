@@ -46,6 +46,7 @@ def _enum_to_list(enum_cls) -> list[dict]:
         PersonStatus.ACTIVE:   "Активен",
         PersonStatus.BLOCKED:  "Заблокирован",
         PersonStatus.ARCHIVED: "Архивирован",
+        PersonStatus.FIRED:    "Уволен",
     }
     return [
         {"value": member.value, "label": labels.get(member, member.value)}

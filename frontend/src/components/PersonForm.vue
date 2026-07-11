@@ -117,6 +117,7 @@ const FALLBACK_PERSON_STATUSES = [
   { value: 'active', label: 'Активный' },
   { value: 'blocked', label: 'Заблокирован' },
   { value: 'archived', label: 'Архивный' },
+  { value: 'fired', label: 'Уволен' },
 ]
 
 const statusOptions = computed(() =>

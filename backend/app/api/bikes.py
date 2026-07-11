@@ -17,6 +17,7 @@ from app.enums.bike_status import BikeStatus
 from app.enums.bike_type import BikeType
 from app.models.bike import Bike
 from app.models.rental import Rental
+from app.models.repair import Repair
 from app.schemas.bike import BikeCreate, BikeResponse, BikeUpdate
 
 
@@ -179,6 +180,24 @@ async def delete_bike(
         raise HTTPException(
             status_code=404,
             detail="Bike not found",
+        )
+
+    # У аренд и ремонтов нет каскадного удаления — попытка удалить велосипед
+    # со связанной историей раньше падала с 500 (нарушение FK). Отвечаем
+    # понятной ошибкой: история важнее удаления.
+    has_rental = await db.execute(
+        select(Rental.id).where(Rental.bike_id == bike_id).limit(1)
+    )
+    has_repair = await db.execute(
+        select(Repair.id).where(Repair.bike_id == bike_id).limit(1)
+    )
+    if has_rental.first() or has_repair.first():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "У велосипеда есть аренды или ремонты — удаление сотрёт "
+                "историю. Вместо удаления переведите его в архивный статус."
+            ),
         )
 
     await db.delete(bike)

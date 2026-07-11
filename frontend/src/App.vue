@@ -60,7 +60,7 @@ import {
   getRepairs,   createRepair,   updateRepair,
   getRentals,   createRental,   updateRental,   closeRental,   deleteRental,
   getParts,     createPart,
-  getPassport,  createPassport, updatePassport,
+  createPassport, updatePassport,
 } from './api/client'
 
 const activePage     = ref('dashboard')
@@ -146,6 +146,7 @@ const FALLBACK_PERSON_STATUSES = [
   { value: 'active',   label: 'Активный'      },
   { value: 'blocked',  label: 'Заблокирован'  },
   { value: 'archived', label: 'Архивный'      },
+  { value: 'fired',    label: 'Уволен'        },
 ]
 const FALLBACK_OWNER_TYPES = [
   { value: 'kirill', label: 'Кирилл'  },
@@ -161,7 +162,18 @@ function toLabelMap(options) {
   return map
 }
 
+const FALLBACK_BIKE_TYPES = [
+  { value: 'Электровелосипед',        label: 'Электровелосипед' },
+  { value: 'Механический велосипед',  label: 'Механический велосипед' },
+]
+const FALLBACK_BIKE_OWNER_TYPES = [
+  { value: 'Великий мастер', label: 'Великий мастер' },
+  { value: 'Виталий',        label: 'Виталий' },
+]
+
 const bikeStatusOptions      = computed(() => enums.value?.bike_status?.length ? enums.value.bike_status : FALLBACK_BIKE_STATUSES)
+const bikeTypeOptions        = computed(() => enums.value?.bike_type?.length ? enums.value.bike_type : FALLBACK_BIKE_TYPES)
+const bikeOwnerTypeOptions   = computed(() => enums.value?.bike_owner_type?.length ? enums.value.bike_owner_type : FALLBACK_BIKE_OWNER_TYPES)
 const repairStatusOptionsRaw = computed(() => enums.value?.repair_status?.length ? enums.value.repair_status : FALLBACK_REPAIR_STATUSES)
 const rentalStatusOptionsRaw = computed(() => enums.value?.rental_status?.length ? enums.value.rental_status : FALLBACK_RENTAL_STATUSES)
 const personStatusOptionsRaw = computed(() => enums.value?.person_status?.length ? enums.value.person_status : FALLBACK_PERSON_STATUSES)
@@ -215,6 +227,75 @@ const addButtonLabels = {
   bicycles:  'Добавить велосипед',
   repairs:   'Создать ремонт',
   parts:     'Добавить запчасть',
+}
+
+// ── Дополнительные фильтры таблиц (помимо статуса) ────────
+// Ключ → выбранное значение ('' = все). Сбрасываются при смене страницы.
+const extraFilters = ref({})
+
+const allTagOptions = computed(() => {
+  const names = new Set()
+  for (const p of people.value) for (const t of (p.tags || [])) names.add(t)
+  return [...names].sort((a, b) => a.localeCompare(b, 'ru')).map(name => ({ value: name, label: name }))
+})
+
+const partCategoryOptions = computed(() => {
+  const names = new Set()
+  for (const p of parts.value) if (p.category) names.add(p.category)
+  return [...names].sort((a, b) => a.localeCompare(b, 'ru')).map(name => ({ value: name, label: name }))
+})
+
+// Определения: какие фильтры показывать на какой странице.
+const extraFilterDefs = computed(() => {
+  const page = activePage.value
+  if (page === 'bicycles') {
+    return [
+      { key: 'type',  label: 'Тип',      options: withAll(bikeTypeOptions.value) },
+      { key: 'owner', label: 'Владелец', options: withAll(bikeOwnerTypeOptions.value) },
+    ]
+  }
+  if (page === 'parts') {
+    const defs = [
+      { key: 'owner', label: 'Владелец', options: withAll(ownerTypeOptions.value) },
+      { key: 'stock', label: 'Остаток',  options: [{ value: '', label: 'Все' }, { value: 'low', label: 'Мало на складе' }, { value: 'out', label: 'Нет в наличии' }] },
+    ]
+    if (partCategoryOptions.value.length) {
+      defs.push({ key: 'category', label: 'Категория', options: withAll(partCategoryOptions.value) })
+    }
+    return defs
+  }
+  if (page === 'history') {
+    return [
+      { key: 'etype', label: 'Тип события', options: [{ value: '', label: 'Все' }, { value: 'Аренда', label: 'Аренды' }, { value: 'Ремонт', label: 'Ремонты' }] },
+    ]
+  }
+  if (page === 'couriers' && allTagOptions.value.length) {
+    return [
+      { key: 'tag', label: 'Тег', options: withAll(allTagOptions.value) },
+    ]
+  }
+  return []
+})
+
+function matchesExtraFilters(page, item) {
+  const f = extraFilters.value
+  if (page === 'bicycles') {
+    if (f.type && item.type !== f.type) return false
+    if (f.owner && item.owner_type !== f.owner) return false
+  }
+  if (page === 'parts') {
+    if (f.owner && item.owner !== f.owner) return false
+    if (f.stock === 'low' && !(item.quantity > 0 && item.quantity <= (item.min_stock ?? 0))) return false
+    if (f.stock === 'out' && item.quantity !== 0) return false
+    if (f.category && item.category !== f.category) return false
+  }
+  if (page === 'history') {
+    if (f.etype && item.event_type !== f.etype) return false
+  }
+  if (page === 'couriers') {
+    if (f.tag && !(item.tags || []).includes(f.tag)) return false
+  }
+  return true
 }
 
 const pageTitle       = computed(() => pageMeta[activePage.value]?.title ?? '')
@@ -359,7 +440,7 @@ const filteredRows = computed(() => {
   return rows.filter(item => {
     const matchesStatus = !status || String(item.status) === status
     const matchesQuery  = !query  || buildSearchText(activePage.value, item).toLowerCase().includes(query)
-    return matchesStatus && matchesQuery
+    return matchesStatus && matchesQuery && matchesExtraFilters(activePage.value, item)
   })
 })
 
@@ -388,6 +469,7 @@ function selectPage(page) {
   activePage.value     = page
   searchQuery.value    = ''
   selectedStatus.value = ''
+  extraFilters.value   = {}
   toast.value          = { text: '', type: '' }
   sortState.value      = { key: null, dir: 'asc' }
   closeAllForms()
@@ -509,27 +591,18 @@ async function load(fn, target, errorMsg) {
 }
 
 async function loadPeople() {
+  // Паспорт приходит вместе с клиентом (поле passport) — отдельные
+  // запросы /people/{id}/passport больше не нужны.
   await load(
       () => getPeople({ search: searchQuery.value, status: selectedStatus.value || undefined, limit: 100 }),
       people, 'Не удалось загрузить клиентов.',
   )
-  if (people.value.length) await loadPassportStatuses(people.value)
 }
 
 function loadBikes()   { load(() => getBikes({ limit: 100 }),                                                              bikes,   'Не удалось загрузить велосипеды.') }
 function loadRepairs() { load(() => getRepairs({ status: selectedStatus.value || undefined, limit: 100 }),                 repairs, 'Не удалось загрузить ремонты.') }
 function loadRentals() { load(() => getRentals({ status: selectedStatus.value || undefined, limit: 100 }),                rentals, 'Не удалось загрузить аренды.') }
 function loadParts()   { load(() => getParts({ search: searchQuery.value, limit: 100 }),                                  parts,   'Не удалось загрузить запчасти.') }
-
-async function loadPassportStatuses(rows) {
-  await Promise.allSettled(rows.map(async person => {
-    try { person.passport = await getPassport(person.id) }
-    catch (e) {
-      if (String(e).includes('404')) person.passport = null
-      else console.error('Паспорт для клиента', person.id, e)
-    }
-  }))
-}
 
 // ── Bike status ───────────────────────────────────────────
 async function changeBikeStatus(bike, newStatus) {
@@ -541,19 +614,22 @@ async function changeBikeStatus(bike, newStatus) {
     showToast(`Статус ${bike.serial_number || `#${bike.id}`} обновлён.`)
   } catch (e) {
     console.error(e); bike.status = prev
-    showToast('Не удалось обновить статус.', 'error')
+    showToast(e?.message || 'Не удалось обновить статус.', 'error')
   }
 }
 
 // ── Edit / Create ─────────────────────────────────────────
-async function startEditPerson(person) {
+function startEditPerson(person) {
   closeAllForms()
-  editingPerson.value = { ...person, passport: { series: '', number: '', issued_by: '', issued_at: '', notes: '' } }
-  try {
-    const passport = await getPassport(person.id)
-    editingPerson.value.passport = passport
-    loadedPassport.value = passport
-  } catch { loadedPassport.value = null }
+  // Паспорт уже пришёл вместе с клиентом — отдельный запрос не нужен.
+  const passport = person.passport || null
+  editingPerson.value = {
+    ...person,
+    passport: passport
+        ? { ...passport }
+        : { series: '', number: '', issued_by: '', issued_at: '', notes: '' },
+  }
+  loadedPassport.value = passport
 }
 
 function startEditBike(bike) {
@@ -663,7 +739,7 @@ async function submitEditPerson() {
     showToast('Клиент обновлён.')
     editingPerson.value = null; loadedPassport.value = null
     loadPeople()
-  } catch (e) { console.error(e); showToast('Не удалось сохранить изменения.', 'error') }
+  } catch (e) { console.error(e); showToast(e?.message || 'Не удалось сохранить изменения.', 'error') }
 }
 
 async function submitPerson() {
@@ -685,7 +761,7 @@ async function submitPerson() {
     newPerson.value = { first_name: '', last_name: '', middle_name: '', phone: '', email: '', telegram: '', notes: '',
       passport: { series: '', number: '', issued_by: '', issued_at: '', notes: '' } }
     loadPeople()
-  } catch (e) { console.error(e); showToast('Ошибка при добавлении клиента.', 'error') }
+  } catch (e) { console.error(e); showToast(e?.message || 'Ошибка при добавлении клиента.', 'error') }
 }
 
 // ── Submit: Bike ──────────────────────────────────────────
@@ -699,7 +775,7 @@ async function submitEditBike() {
       status: editingBike.value.status,
     })
     showToast('Велосипед обновлён.'); editingBike.value = null; loadBikes()
-  } catch (e) { console.error(e); showToast('Не удалось сохранить изменения.', 'error') }
+  } catch (e) { console.error(e); showToast(e?.message || 'Не удалось сохранить изменения.', 'error') }
 }
 
 async function submitBike() {
@@ -712,7 +788,7 @@ async function submitBike() {
     showToast('Велосипед добавлен.'); showBikeForm.value = false
     newBike.value = { type: 'Электровелосипед', brand: '', model: '', serial_number: '', color: '', notes: '', owner_type: null }
     loadBikes()
-  } catch (e) { console.error(e); showToast('Ошибка при добавлении велосипеда.', 'error') }
+  } catch (e) { console.error(e); showToast(e?.message || 'Ошибка при добавлении велосипеда.', 'error') }
 }
 
 // ── Submit: Repair ────────────────────────────────────────
@@ -723,17 +799,14 @@ async function submitRepair() {
       client_id: newRepair.value.client_id,
       problem_description: newRepair.value.problem_description,
     })
-    if (newRepair.value.bike_id) {
-      try {
-        await updateBike(newRepair.value.bike_id, { status: 'repair' })
-        const bike = bikes.value.find(b => b.id === newRepair.value.bike_id)
-        if (bike) bike.status = 'repair'
-      } catch {}
-    }
+    // Бэкенд сам переводит велосипед в статус «Ремонт» атомарно с созданием
+    // заказа — отдельный запрос updateBike больше не нужен.
+    const bike = bikes.value.find(b => b.id === newRepair.value.bike_id)
+    if (bike) bike.status = 'repair'
     newRepair.value = { ...repair, status: repair.status ?? 'new' }
     showToast('Ремонт создан. Теперь можно добавлять работы и запчасти.')
     loadRepairs(); loadBikes()
-  } catch (e) { console.error(e); showToast('Ошибка при создании ремонта.', 'error') }
+  } catch (e) { console.error(e); showToast(e?.message || 'Ошибка при создании ремонта.', 'error') }
 }
 
 async function onRepairSaved() { loadRepairs(); loadBikes(); loadParts() }
@@ -751,7 +824,7 @@ async function submitPart() {
     showToast('Запчасть добавлена.'); showPartForm.value = false
     newPart.value = { name: '', category: '', sku: '', purchase_price: '', sale_price: '', quantity: 1, min_stock: 2, owner: 'kirill', supplier: '', notes: '' }
     loadParts()
-  } catch (e) { console.error(e); showToast('Ошибка при добавлении запчасти.', 'error') }
+  } catch (e) { console.error(e); showToast(e?.message || 'Ошибка при добавлении запчасти.', 'error') }
 }
 
 // ── Submit: Rental ────────────────────────────────────────
@@ -766,7 +839,7 @@ async function submitRental() {
     showRentalForm.value = false
     newRental.value = { bike_id: null, person_id: null, price_per_day: '' }
     loadRentals(); loadBikes()
-  } catch (e) { console.error(e); showToast('Ошибка при создании аренды.', 'error') }
+  } catch (e) { console.error(e); showToast(e?.message || 'Ошибка при создании аренды.', 'error') }
 }
 
 
@@ -791,7 +864,7 @@ async function submitEditRental() {
     await loadBikes()
   } catch (e) {
     console.error(e)
-    showToast('Не удалось обновить аренду.', 'error')
+    showToast(e?.message || 'Не удалось обновить аренду.', 'error')
   }
 }
 
@@ -800,7 +873,7 @@ async function handleCloseRental(rental) {
   try {
     await closeRental(rental.id)
     showToast('Аренда закрыта.'); loadRentals(); loadBikes()
-  } catch (e) { console.error(e); showToast('Не удалось закрыть аренду.', 'error') }
+  } catch (e) { console.error(e); showToast(e?.message || 'Не удалось закрыть аренду.', 'error') }
 }
 
 async function handleDeleteRental(rental) {
@@ -808,7 +881,7 @@ async function handleDeleteRental(rental) {
   try {
     await deleteRental(rental.id)
     showToast('Аренда удалена.'); loadRentals(); loadBikes()
-  } catch (e) { console.error(e); showToast('Не удалось удалить аренду.', 'error') }
+  } catch (e) { console.error(e); showToast(e?.message || 'Не удалось удалить аренду.', 'error') }
 }
 
 // ── Lifecycle ─────────────────────────────────────────────
@@ -830,12 +903,17 @@ function handleRowTouch(row, type) {
   lastTap.value = now
 }
 
+// Debounce: без него каждый введённый символ поиска дёргал сервер.
+let reloadTimer = null
 watch([searchQuery, selectedStatus], () => {
-  const page = activePage.value
-  if (page === 'dashboard') loadRentals()
-  if (page === 'couriers')  loadPeople()
-  if (page === 'repairs')   loadRepairs()
-  if (page === 'parts')     loadParts()
+  clearTimeout(reloadTimer)
+  reloadTimer = setTimeout(() => {
+    const page = activePage.value
+    if (page === 'dashboard') loadRentals()
+    if (page === 'couriers')  loadPeople()
+    if (page === 'repairs')   loadRepairs()
+    if (page === 'parts')     loadParts()
+  }, 300)
 })
 </script>
 
@@ -986,15 +1064,29 @@ watch([searchQuery, selectedStatus], () => {
       </transition>
 
       <!-- Page content -->
-      <div v-if="filterOptions.length" class="toolbar">
-        <span class="filter-label">Статус:</span>
-        <div class="filter-chips">
-          <button
-              v-for="opt in filterOptions"
-              :key="opt.value"
-              :class="['chip', { active: selectedStatus === opt.value }]"
-              @click="selectedStatus = opt.value"
-          >{{ opt.label }}</button>
+      <div v-if="filterOptions.length || extraFilterDefs.length" class="toolbar toolbar-filters">
+        <div v-if="filterOptions.length" class="filter-group">
+          <span class="filter-label">Статус:</span>
+          <div class="filter-chips">
+            <button
+                v-for="opt in filterOptions"
+                :key="opt.value"
+                :class="['chip', { active: selectedStatus === opt.value }]"
+                @click="selectedStatus = opt.value"
+            >{{ opt.label }}</button>
+          </div>
+        </div>
+
+        <div v-for="def in extraFilterDefs" :key="def.key" class="filter-group">
+          <span class="filter-label">{{ def.label }}:</span>
+          <div class="filter-chips">
+            <button
+                v-for="opt in def.options"
+                :key="opt.value"
+                :class="['chip', { active: (extraFilters[def.key] || '') === opt.value }]"
+                @click="extraFilters = { ...extraFilters, [def.key]: opt.value }"
+            >{{ opt.label }}</button>
+          </div>
         </div>
       </div>
 
@@ -1483,7 +1575,9 @@ body {
 
 /* ── Toolbar / chips ────────────────────────────────────── */
 .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.filter-label { font-size: 0.8rem; font-weight: 600; color: #6b7280; }
+.toolbar-filters { align-items: flex-start; flex-direction: column; gap: 8px; }
+.filter-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.filter-label { font-size: 0.8rem; font-weight: 600; color: #6b7280; min-width: 64px; }
 .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip {
   padding: 5px 12px; border: 1px solid #e5e7eb;

@@ -10,6 +10,7 @@ from app.enums.person_status import PersonStatus
 from app.enums.rental_status import RentalStatus
 from app.schemas.compact import BikeMini
 from app.schemas.compact import RentalForPerson
+from app.schemas.passport import PassportResponse
 
 
 class PersonBase(BaseModel):
@@ -64,6 +65,12 @@ class PersonResponse(BaseModel):
     updated_at: datetime
 
     rentals: list[RentalForPerson] = []
+
+    passport: PassportResponse | None = Field(
+        None,
+        description="Паспортные данные (None, если не заполнены) — "
+                    "отдаются сразу, чтобы фронтенд не делал N запросов",
+    )
 
     tags: list[str] = Field(
         default_factory=list,
