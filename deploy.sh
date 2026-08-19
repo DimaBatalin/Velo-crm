@@ -4,7 +4,7 @@
 #   bash deploy.sh
 set -euo pipefail
 
-SERVER_IP="${SERVER_IP:-201.51.13.156}"
+SERVER_IP="${SERVER_IP:-89.125.28.212}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Запускать от root: sudo bash deploy.sh" >&2

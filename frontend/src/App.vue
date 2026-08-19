@@ -59,7 +59,7 @@ import {
   getBikes,     createBike,     updateBike,
   getRepairs,   createRepair,   updateRepair,
   getRentals,   createRental,   updateRental,   closeRental,   deleteRental,
-  getParts,     createPart,
+  getParts,     createPart,     updatePart,     deletePart,
   createPassport, updatePassport,
 } from './api/client'
 
@@ -84,6 +84,7 @@ const showRentalForm = ref(false)
 const editingPerson  = ref(null)
 const editingBike    = ref(null)
 const editingRental  = ref(null)
+const editingPart    = ref(null)
 const loadedPassport = ref(null)
 const isSidebarOpen  = ref(false)
 
@@ -462,6 +463,7 @@ function closeAllForms() {
   editingPerson.value  = null
   editingBike.value    = null
   editingRental.value  = null
+  editingPart.value    = null
   newRepair.value      = createRepairDraft()
 }
 
@@ -642,6 +644,11 @@ function startEditRental(rental) {
   editingRental.value = { ...rental }
 }
 
+function startEditPart(part) {
+  closeAllForms()
+  editingPart.value = { ...part }
+}
+
 function startEditRepair(repair) {
   closeAllForms()
   newRepair.value = { ...repair, id: repair.id, bike_id: repair.bike_id, client_id: repair.client_id,
@@ -812,16 +819,45 @@ async function submitRepair() {
 async function onRepairSaved() { loadRepairs(); loadBikes(); loadParts() }
 
 // ── Submit: Part ──────────────────────────────────────────
+async function submitEditPart() {
+  if (!editingPart.value) return
+  try {
+    await updatePart(editingPart.value.id, {
+      name: editingPart.value.name, category: editingPart.value.category || undefined,
+      sku: editingPart.value.sku || undefined, purchase_price: Number(editingPart.value.purchase_price),
+      sale_price: Number(editingPart.value.sale_price), quantity: Number(editingPart.value.quantity),
+      min_stock: Number(editingPart.value.min_stock) || 2,
+      owner: editingPart.value.owner, supplier: editingPart.value.supplier || undefined,
+      notes: editingPart.value.notes || undefined,
+    })
+    showToast('Запчасть обновлена.'); editingPart.value = null; loadParts()
+  } catch (e) { console.error(e); showToast(e?.message || 'Не удалось сохранить изменения.', 'error') }
+}
+
+async function handleDeletePart(part) {
+  if (!confirm(`Удалить позицию «${part.name}»?`)) return
+  try {
+    await deletePart(part.id)
+    showToast('Запчасть удалена.'); loadParts()
+  } catch (e) { console.error(e); showToast(e?.message || 'Не удалось удалить запчасть.', 'error') }
+}
+
 async function submitPart() {
   try {
-    await createPart({
+    const saved = await createPart({
       name: newPart.value.name, category: newPart.value.category || undefined,
       sku: newPart.value.sku || undefined, purchase_price: Number(newPart.value.purchase_price),
       sale_price: Number(newPart.value.sale_price), quantity: Number(newPart.value.quantity),
       min_stock: Number(newPart.value.min_stock) || 2,
       owner: newPart.value.owner, supplier: newPart.value.supplier || undefined, notes: newPart.value.notes || undefined,
     })
-    showToast('Запчасть добавлена.'); showPartForm.value = false
+    // Backend объединяет одинаковые позиции: если вернулся уже известный
+    // id — это пополнение остатка, а не новая номенклатура.
+    const merged = parts.value.some(p => p.id === saved.id)
+    showToast(merged
+        ? `Позиция «${saved.name}» пополнена: ${saved.quantity} шт. на складе.`
+        : 'Запчасть добавлена.')
+    showPartForm.value = false
     newPart.value = { name: '', category: '', sku: '', purchase_price: '', sale_price: '', quantity: 1, min_stock: 2, owner: 'kirill', supplier: '', notes: '' }
     loadParts()
   } catch (e) { console.error(e); showToast(e?.message || 'Ошибка при добавлении запчасти.', 'error') }
@@ -963,7 +999,7 @@ watch([searchQuery, selectedStatus], () => {
       <!-- Modals -->
       <transition name="fade">
         <div
-            v-if="showPersonForm || showBikeForm || showRepairForm || showPartForm || showRentalForm || editingPerson || editingBike || editingRental"
+            v-if="showPersonForm || showBikeForm || showRepairForm || showPartForm || showRentalForm || editingPerson || editingBike || editingRental || editingPart"
             class="modal-backdrop"
             @click.self="closeAllForms"
         >
@@ -1056,6 +1092,16 @@ watch([searchQuery, selectedStatus], () => {
                   title="Редактирование аренды"
                   submitLabel="Сохранить изменения"
                   @save="submitEditRental"
+                  @close="closeAllForms"
+              />
+
+              <PartForm
+                  v-else-if="editingPart"
+                  :visible="!!editingPart"
+                  v-model:modelValue="editingPart"
+                  title="Редактировать запчасть"
+                  submitLabel="Сохранить изменения"
+                  @save="submitEditPart"
                   @close="closeAllForms"
               />
             </div>
@@ -1288,10 +1334,11 @@ watch([searchQuery, selectedStatus], () => {
               <th class="th-sortable" @click="toggleSort('owner')">Принадлежность <span class="sort-arrow">{{ sortArrow('owner') }}</span></th>
               <th class="col-right th-sortable" @click="toggleSort('quantity')">Кол-во <span class="sort-arrow">{{ sortArrow('quantity') }}</span></th>
               <th class="col-right th-sortable" @click="toggleSort('price')">Цена продажи <span class="sort-arrow">{{ sortArrow('price') }}</span></th>
+              <th></th>
             </tr>
             </thead>
             <tbody>
-            <tr v-for="row in sortedRows" :key="row.id">
+            <tr v-for="row in sortedRows" :key="row.id" class="row-clickable" @click="startEditPart(row)" title="Открыть запчасть">
               <td class="td-name" data-label="Наименование">{{ row.name }}</td>
               <td data-label="Категория"><span class="category-tag">{{ row.category || '—' }}</span></td>
               <td data-label="Принадлежность">
@@ -1307,9 +1354,16 @@ watch([searchQuery, selectedStatus], () => {
               <td class="col-right td-price" data-label="Цена">
                 {{ row.sale_price != null ? `${row.sale_price} ₽` : '—' }}
               </td>
+              <td class="td-actions" data-label="" @click.stop>
+                <button
+                    class="action-btn del-btn"
+                    title="Удалить"
+                    @click="handleDeletePart(row)"
+                >✕</button>
+              </td>
             </tr>
             <tr v-if="!isLoading && sortedRows.length === 0">
-              <td colspan="5" class="empty-row">Запчасти не найдены</td>
+              <td colspan="6" class="empty-row">Запчасти не найдены</td>
             </tr>
             </tbody>
           </table>

@@ -30,6 +30,15 @@ import uuid
 import httpx
 from dotenv import load_dotenv
 
+# Нужен только для сверки чисел внутри выгруженного xlsx. Он есть в
+# backend/requirements.txt, но test_runner.py могут запускать и из окружения,
+# где его нет, — тогда пропускаем именно эту проверку, а не весь прогон.
+try:
+    from io import BytesIO
+    from openpyxl import load_workbook
+except ImportError:
+    load_workbook = None
+
 load_dotenv()
 
 # Вывод содержит ✓/✗ — на Windows консоль по умолчанию использует
@@ -64,6 +73,21 @@ created = {
 failures: list[str] = []
 passed = 0
 
+# Цены тестовых сущностей вынесены в константы: по ним же считаются
+# ожидаемые суммы в summary ремонта и в отчётах по услугам.
+PART_PURCHASE_PRICE = 10.0
+PART_SALE_PRICE = 20.0
+
+SERVICE_A_NAME = f"Wheel true {RUN_ID}"
+SERVICE_A_PRICE = 150.0
+SERVICE_A_OVERRIDE_PRICE = 250.0   # ручная цена той же услуги во втором списании
+
+SERVICE_B_NAME = f"Brake bleed {RUN_ID}"
+SERVICE_B_PRICE = 99.5
+
+SERVICES_TOTAL = SERVICE_A_PRICE + SERVICE_A_OVERRIDE_PRICE + SERVICE_B_PRICE
+PARTS_TOTAL = PART_SALE_PRICE * 1
+
 
 def check(condition: bool, message: str):
     global passed
@@ -73,6 +97,11 @@ def check(condition: bool, message: str):
     else:
         failures.append(message)
         print(f"  ✗ {message}")
+
+
+def approx(a, b, tol: float = 0.01) -> bool:
+    """Сравнение денежных сумм: цены — float, точного равенства не ждём."""
+    return abs(float(a) - float(b)) < tol
 
 
 def auth_headers(token: str) -> dict:
@@ -280,8 +309,8 @@ def test_parts(mech_h: dict, mgr_h: dict) -> int:
         "/parts",
         json={
             "name": f"Chain-{RUN_ID}",
-            "purchase_price": 10,
-            "sale_price": 20,
+            "purchase_price": PART_PURCHASE_PRICE,
+            "sale_price": PART_SALE_PRICE,
             "owner": "kirill",
             "quantity": 1,
             "min_stock": 2,
@@ -309,22 +338,96 @@ def test_parts(mech_h: dict, mgr_h: dict) -> int:
     return part_id
 
 
-def test_services(mech_h: dict) -> int:
+def test_parts_merge(mech_h: dict):
+    print("\n=== Parts merge (одинаковые позиции объединяются) ===")
+
+    base = {
+        "name": f"Камера 29 {RUN_ID}",
+        "category": "Расходники",
+        "purchase_price": 120,
+        "sale_price": 300,
+        "owner": "kirill",
+        "quantity": 20,
+        "min_stock": 2,
+    }
+
+    r = client.post("/parts", json=base, headers=mech_h)
+    check(r.status_code == 201, "создана позиция «Камера 29» 20 шт по 300")
+    first_id = r.json()["id"]
+    created["parts"].append(first_id)
+
+    # Та же номенклатура и цены, но название с другим регистром и пробелами.
+    r = client.post(
+        "/parts",
+        json={**base, "quantity": 10, "name": f"  камера 29 {RUN_ID} "},
+        headers=mech_h,
+    )
+    check(
+        r.status_code == 201 and r.json()["id"] == first_id and r.json()["quantity"] == 30,
+        "повторная поставка той же позиции увеличивает количество (20 + 10 = 30), дубль не создаётся",
+    )
+
+    # Пустые справочные поля дозаполняются данными новой поставки.
+    r = client.post(
+        "/parts",
+        json={**base, "quantity": 0, "sku": f"SKU-{RUN_ID}"},
+        headers=mech_h,
+    )
+    check(
+        r.status_code == 201 and r.json()["id"] == first_id and r.json()["sku"] == f"SKU-{RUN_ID}",
+        "пустой артикул дозаполняется из новой поставки",
+    )
+
+    r = client.post("/parts", json={**base, "quantity": 5, "sale_price": 350}, headers=mech_h)
+    other_price_id = r.json()["id"]
+    check(
+        r.status_code == 201 and other_price_id != first_id,
+        "позиция с другой ценой продажи не сливается — заводится отдельная строка",
+    )
+    created["parts"].append(other_price_id)
+
+    r = client.post("/parts", json={**base, "quantity": 5, "owner": "vitaly"}, headers=mech_h)
+    other_owner_id = r.json()["id"]
+    check(
+        r.status_code == 201 and other_owner_id != first_id,
+        "позиция другого владельца не сливается — заводится отдельная строка",
+    )
+    created["parts"].append(other_owner_id)
+
+
+def test_services(mech_h: dict) -> tuple[int, int]:
     print("\n=== Services (write: admin+mechanic) ===")
 
     r = client.post(
         "/services",
-        json={"name": f"Wheel true {RUN_ID}", "price": 15},
+        json={"name": SERVICE_A_NAME, "price": SERVICE_A_PRICE},
         headers=mech_h,
     )
     check(r.status_code == 201, "mechanic создаёт услугу")
-    service_id = r.json()["id"]
-    created["services"].append(service_id)
+    service_a_id = r.json()["id"]
+    created["services"].append(service_a_id)
 
-    return service_id
+    r = client.post(
+        "/services",
+        json={"name": SERVICE_B_NAME, "price": SERVICE_B_PRICE},
+        headers=mech_h,
+    )
+    check(r.status_code == 201, "mechanic создаёт вторую услугу (для проверки сумм в отчётах)")
+    service_b_id = r.json()["id"]
+    created["services"].append(service_b_id)
+
+    return service_a_id, service_b_id
 
 
-def test_repairs(mech_h: dict, mgr_h: dict, bike_id: int, person_id: int, part_id: int, service_id: int) -> int:
+def test_repairs(
+        mech_h: dict,
+        mgr_h: dict,
+        bike_id: int,
+        person_id: int,
+        part_id: int,
+        service_a_id: int,
+        service_b_id: int,
+) -> int:
     print("\n=== Repairs (2.2 total_cost, 2.3 waiting_parts, 2.4 closed_by, write: admin+mechanic) ===")
 
     r = client.post(
@@ -347,11 +450,53 @@ def test_repairs(mech_h: dict, mgr_h: dict, bike_id: int, person_id: int, part_i
     r = client.post(f"/repairs/{repair_id}/parts", json={"part_id": part_id, "quantity": 1}, headers=mech_h)
     check(r.status_code == 201, "mechanic добавляет запчасть в ремонт (со списанием)")
 
-    r = client.post(f"/repairs/{repair_id}/services", json={"service_id": service_id}, headers=mech_h)
+    r = client.post(f"/repairs/{repair_id}/services", json={"service_id": service_a_id}, headers=mech_h)
     check(r.status_code == 201, "mechanic добавляет услугу в ремонт")
+    check(
+        approx(r.json()["price"], SERVICE_A_PRICE),
+        "без явной цены берётся базовая цена услуги из справочника",
+    )
 
     r = client.get(f"/repairs/{repair_id}", headers=mech_h)
-    check(r.status_code == 200 and r.json()["total_cost"] == 20.0 + 15.0, "total_cost = сумма услуг + запчастей")
+    check(
+        r.status_code == 200 and approx(r.json()["total_cost"], PART_SALE_PRICE + SERVICE_A_PRICE),
+        "total_cost = сумма услуг + запчастей",
+    )
+
+    # ── Суммы по услугам: та же услуга второй раз, но с ручной ценой ──
+    r = client.post(
+        f"/repairs/{repair_id}/services",
+        json={"service_id": service_a_id, "price": SERVICE_A_OVERRIDE_PRICE},
+        headers=mech_h,
+    )
+    check(
+        r.status_code == 201 and approx(r.json()["price"], SERVICE_A_OVERRIDE_PRICE),
+        "ту же услугу можно добавить повторно, ручная цена не подменяется каталожной",
+    )
+
+    r = client.post(f"/repairs/{repair_id}/services", json={"service_id": service_b_id}, headers=mech_h)
+    check(r.status_code == 201, "вторая услуга добавлена в ремонт")
+
+    r = client.get(f"/repairs/{repair_id}/summary", headers=mech_h)
+    summary = r.json()
+    check(
+        r.status_code == 200 and approx(summary["services_total"], SERVICES_TOTAL),
+        f"summary.services_total = {SERVICES_TOTAL} (базовая + ручная + вторая услуга)",
+    )
+    check(
+        approx(summary["parts_total"], PARTS_TOTAL),
+        f"summary.parts_total = {PARTS_TOTAL} (списано по цене продажи)",
+    )
+    check(
+        approx(summary["total_for_client"], SERVICES_TOTAL + PARTS_TOTAL),
+        "summary.total_for_client = услуги + запчасти",
+    )
+
+    r = client.get(f"/repairs/{repair_id}", headers=mech_h)
+    check(
+        approx(r.json()["total_cost"], SERVICES_TOTAL + PARTS_TOTAL),
+        "total_cost в детальном ответе совпадает с summary",
+    )
 
     r = client.get("/repairs", headers=mech_h)
     check(
@@ -415,7 +560,7 @@ def test_rentals(mech_h: dict, mgr_h: dict, bike_id: int, person_id: int) -> int
     return rental_id
 
 
-def test_analytics(mech_h: dict, mgr_h: dict):
+def test_analytics(mech_h: dict, mgr_h: dict, service_a_id: int, service_b_id: int):
     print("\n=== Analytics (2.6, read-only для всех ролей) ===")
 
     for path in (
@@ -431,6 +576,43 @@ def test_analytics(mech_h: dict, mgr_h: dict):
         r = client.get(path, headers=mgr_h)
         check(r.status_code == 200, f"GET {path} -> 200 (manager)")
 
+    # ── Суммы по услугам ─────────────────────────────
+    # Проверяем только СВОИ услуги (имена и id из этого прогона) — в БД могут
+    # лежать данные прошлых сессий, глобальные итоги на них завязывать нельзя.
+    r = client.get("/analytics/services/revenue?period=week", headers=mech_h)
+    revenue = r.json()
+    items = {item["service_id"]: item for item in revenue["items"]}
+
+    item_a = items.get(service_a_id)
+    check(
+        item_a is not None
+        and item_a["usage_count"] == 2
+        and approx(item_a["revenue"], SERVICE_A_PRICE + SERVICE_A_OVERRIDE_PRICE),
+        f"services/revenue: услуга A — 2 использования, выручка {SERVICE_A_PRICE + SERVICE_A_OVERRIDE_PRICE} "
+        f"(базовая цена + ручная, а не удвоенная каталожная)",
+    )
+
+    item_b = items.get(service_b_id)
+    check(
+        item_b is not None
+        and item_b["usage_count"] == 1
+        and approx(item_b["revenue"], SERVICE_B_PRICE),
+        f"services/revenue: услуга B — 1 использование, выручка {SERVICE_B_PRICE}",
+    )
+
+    check(
+        approx(revenue["total_revenue"], sum(item["revenue"] for item in revenue["items"])),
+        "services/revenue: total_revenue = сумма выручки по позициям",
+    )
+
+    r = client.get("/analytics/services/top?limit=100", headers=mech_h)
+    top = {item["service_id"]: item for item in r.json()}
+    check(
+        top.get(service_a_id, {}).get("usage_count") == 2
+        and top.get(service_b_id, {}).get("usage_count") == 1,
+        "services/top: количество использований совпадает с фактическим",
+    )
+
     r = client.get("/analytics/export?period=month", headers=mgr_h)
     check(
         r.status_code == 200
@@ -439,6 +621,27 @@ def test_analytics(mech_h: dict, mgr_h: dict):
         ),
         "GET /analytics/export -> 200 + правильный Content-Type xlsx",
     )
+
+    # ── Те же суммы, но внутри выгруженного xlsx ─────
+    if load_workbook is None:
+        print("  ⚠ openpyxl не установлен — сверка чисел внутри xlsx пропущена")
+    elif r.status_code == 200:
+        sheet = load_workbook(BytesIO(r.content))["Услуги"]
+        rows = {row[0]: row for row in sheet.iter_rows(min_row=2, values_only=True)}
+
+        row_a = rows.get(SERVICE_A_NAME)
+        check(
+            row_a is not None
+            and row_a[1] == 2
+            and approx(row_a[2], SERVICE_A_PRICE + SERVICE_A_OVERRIDE_PRICE),
+            "xlsx, лист «Услуги»: строка услуги A совпадает с API",
+        )
+
+        row_b = rows.get(SERVICE_B_NAME)
+        check(
+            row_b is not None and row_b[1] == 1 and approx(row_b[2], SERVICE_B_PRICE),
+            "xlsx, лист «Услуги»: строка услуги B совпадает с API",
+        )
 
 
 # ──────────────────────────────────────────────
@@ -457,11 +660,12 @@ def main():
         bike_id = test_bikes(mech_h, mgr_h)
         person_id = test_people(mech_h, mgr_h)
         part_id = test_parts(mech_h, mgr_h)
-        service_id = test_services(mech_h)
+        test_parts_merge(mech_h)
+        service_a_id, service_b_id = test_services(mech_h)
 
-        test_repairs(mech_h, mgr_h, bike_id, person_id, part_id, service_id)
+        test_repairs(mech_h, mgr_h, bike_id, person_id, part_id, service_a_id, service_b_id)
         test_rentals(mech_h, mgr_h, bike_id, person_id)
-        test_analytics(mech_h, mgr_h)
+        test_analytics(mech_h, mgr_h, service_a_id, service_b_id)
 
     finally:
         cleanup(admin_h)

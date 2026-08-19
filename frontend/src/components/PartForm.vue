@@ -23,6 +23,7 @@ const ownerOptions = computed(() =>
 )
 
 const defaults = {
+  id: undefined,
   name: '',
   category: '',
   sku: '',
@@ -40,6 +41,7 @@ const { localForm } = useSyncedForm(
   (value) => emit('update:modelValue', value),
   defaults,
   (value) => ({
+    id: value.id,
     name: value.name ?? '',
     category: value.category ?? '',
     sku: value.sku ?? '',
@@ -69,7 +71,7 @@ function onSubmit() {
       <div class="form-grid">
         <label class="field full-width">
           <span class="field-label">Наименование <span class="req">*</span></span>
-          <input v-model="localForm.name" required placeholder="Камера 29\"" />
+          <input v-model="localForm.name" required placeholder='Камера 29"' />
         </label>
         <label class="field">
           <span class="field-label">Категория</span>

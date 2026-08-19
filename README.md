@@ -124,7 +124,7 @@ npm run dev
 
 ## Деплой на сервер
 
-Сервер: **201.51.13.156** (Ubuntu). Рабочая машина: Windows 11.
+Сервер: **89.125.28.212** (Ubuntu). Рабочая машина: Windows 11.
 
 Код доставляем через git — `rsync` в Windows нет, а `scp` рабочей копии
 рискует утащить `node_modules` и CRLF-переводы строк.
@@ -140,7 +140,7 @@ git push origin master
 **2. Подключиться к серверу и развернуть:**
 
 ```powershell
-ssh root@201.51.13.156
+ssh root@89.125.28.212
 ```
 
 ```bash
@@ -162,7 +162,7 @@ docker compose up -d --build
 `deploy.sh` проверяет, что запущен от root, ставит `curl`/`openssl`/Docker +
 compose-plugin, создаёт `.env` из `.env.example` со сгенерированными
 `JWT_SECRET_KEY` и `POSTGRES_PASSWORD`, прописывает
-`ALLOWED_ORIGINS=http://201.51.13.156`, открывает порт 80 в `ufw`
+`ALLOWED_ORIGINS=http://89.125.28.212`, открывает порт 80 в `ufw`
 (если тот активен) и поднимает контейнеры.
 
 `.env` в git не хранится — на сервере он создаётся скриптом. Если `.env` уже
@@ -171,7 +171,7 @@ compose-plugin, создаёт `.env` из `.env.example` со сгенерир�
 После первого запуска обязательно смените пароль администратора
 (`FIRST_ADMIN_PASSWORD` применяется только при пустой таблице `users`).
 
-Сайт: http://201.51.13.156 · Swagger: http://201.51.13.156/api/docs
+Сайт: http://89.125.28.212 · Swagger: http://89.125.28.212/api/docs
 
 ## Подключение к БД через pgAdmin
 
@@ -204,10 +204,10 @@ pgAdmin умеет это сам, отдельный терминал не ну�
 - **Maintenance database:** `velo`
 - **Username:** `velo`
 - **Password:** значение `POSTGRES_PASSWORD` из `.env` **на сервере**
-  (посмотреть: `ssh root@201.51.13.156` → `grep POSTGRES_PASSWORD /opt/velo-system/.env`)
+  (посмотреть: `ssh root@89.125.28.212` → `grep POSTGRES_PASSWORD /opt/velo-system/.env`)
 - Вкладка **SSH Tunnel:**
   - *Use SSH tunneling* — включить
-  - **Tunnel host:** `201.51.13.156`
+  - **Tunnel host:** `89.125.28.212`
   - **Tunnel port:** `22`
   - **Username:** `root`
   - **Authentication:** пароль root или приватный SSH-ключ
